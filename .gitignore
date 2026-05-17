@@ -1,0 +1,8 @@
+bin/
+docs/architecture/diagrams/generated/*
+!docs/architecture/diagrams/generated/README.md
+
+.aphelion/
+
+# Generated local reports
+reports/

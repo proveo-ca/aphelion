@@ -1,0 +1,218 @@
+//go:build linux
+
+package session
+
+import (
+	"database/sql"
+	"testing"
+	"time"
+)
+
+func createSchemaV44AutoApprovalFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, stmt := range []string{
+		`CREATE TABLE schema_version (
+			version INTEGER NOT NULL,
+			applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`INSERT INTO schema_version(version) VALUES (44)`,
+		`CREATE TABLE operator_auto_approvals (
+			lease_id TEXT PRIMARY KEY,
+			admin_user_id INTEGER NOT NULL DEFAULT 0,
+			chat_id INTEGER NOT NULL DEFAULT 0,
+			scope TEXT NOT NULL DEFAULT 'all',
+			reason TEXT NOT NULL DEFAULT '',
+			max_uses INTEGER NOT NULL DEFAULT 0,
+			used_count INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			expires_at TEXT NOT NULL,
+			revoked_at TEXT,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("exec v44 fixture stmt: %v", err)
+		}
+	}
+
+	now := time.Now().UTC()
+	rows := []OperatorAutoApprovalLease{
+		{
+			ID:          "auto-active",
+			AdminUserID: 1001,
+			ChatID:      99170,
+			Scope:       OperatorAutoApprovalScopeWorkspace,
+			Reason:      "active fixture",
+			MaxUses:     2,
+			UsedCount:   1,
+			CreatedAt:   now.Add(-time.Minute),
+			ExpiresAt:   now.Add(time.Hour),
+			UpdatedAt:   now.Add(-time.Minute),
+		},
+		{
+			ID:          "auto-expired",
+			AdminUserID: 1001,
+			ChatID:      99170,
+			Scope:       OperatorAutoApprovalScopeDeploy,
+			Reason:      "expired fixture",
+			CreatedAt:   now.Add(-2 * time.Hour),
+			ExpiresAt:   now.Add(-time.Hour),
+			UpdatedAt:   now.Add(-time.Hour),
+		},
+	}
+	for _, row := range rows {
+		if _, err := db.Exec(`
+			INSERT INTO operator_auto_approvals(
+				lease_id, admin_user_id, chat_id, scope, reason, max_uses, used_count,
+				created_at, expires_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, row.ID, row.AdminUserID, row.ChatID, row.Scope, row.Reason, row.MaxUses, row.UsedCount, row.CreatedAt.Format(time.RFC3339Nano), row.ExpiresAt.Format(time.RFC3339Nano), row.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("insert v44 operator auto approval fixture: %v", err)
+		}
+	}
+}
+
+func createSchemaV43Fixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	ddl := []string{
+		`CREATE TABLE schema_version (
+			version INTEGER NOT NULL,
+			applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`INSERT INTO schema_version(version) VALUES (43)`,
+		`CREATE TABLE durable_agents (
+			agent_id TEXT PRIMARY KEY,
+			parent_agent_id TEXT,
+			parent_scope_kind TEXT,
+			parent_scope_id TEXT,
+			review_target_chat_id INTEGER NOT NULL DEFAULT 0,
+			channel_kind TEXT NOT NULL,
+			live_policy_json TEXT NOT NULL DEFAULT '{}',
+			channel_config_json TEXT NOT NULL DEFAULT '{}',
+			bootstrap_ceiling_json TEXT NOT NULL DEFAULT '{}',
+			bootstrap_provider_json TEXT NOT NULL DEFAULT '{}',
+			control_plane_secret TEXT NOT NULL DEFAULT '',
+			policy_version INTEGER NOT NULL DEFAULT 1,
+			policy_hash TEXT NOT NULL DEFAULT '',
+			policy_issued_at TEXT,
+			local_storage_roots_json TEXT NOT NULL DEFAULT '[]',
+			network_policy TEXT,
+			wakeup_mode TEXT,
+			secret_scopes_json TEXT NOT NULL DEFAULT '[]',
+			allowed_telegram_user_ids_json TEXT NOT NULL DEFAULT '[]',
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`CREATE TABLE durable_agent_remote_enrollments (
+			agent_id TEXT PRIMARY KEY,
+			parent_control_url TEXT NOT NULL DEFAULT '',
+			key_fingerprint TEXT NOT NULL DEFAULT '',
+			protocol_version TEXT NOT NULL DEFAULT 'v1',
+			status TEXT NOT NULL DEFAULT 'active',
+			last_sequence INTEGER NOT NULL DEFAULT 0,
+			enrolled_at TEXT,
+			last_seen_at TEXT,
+			revoked_at TEXT,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (agent_id) REFERENCES durable_agents(agent_id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE durable_agent_control_receipts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			agent_id TEXT NOT NULL,
+			message_id TEXT NOT NULL,
+			message_kind TEXT NOT NULL,
+			sequence INTEGER NOT NULL,
+			received_at TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(agent_id, message_id),
+			FOREIGN KEY (agent_id) REFERENCES durable_agents(agent_id) ON DELETE CASCADE
+		)`,
+	}
+	for _, stmt := range ddl {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("exec v43 fixture stmt: %v", err)
+		}
+	}
+
+	createdAt := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	updatedAt := time.Date(2026, 5, 12, 10, 5, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	if _, err := db.Exec(`
+		INSERT INTO durable_agents(
+			agent_id, parent_agent_id, parent_scope_kind, parent_scope_id, review_target_chat_id,
+			channel_kind, live_policy_json, channel_config_json, bootstrap_ceiling_json, bootstrap_provider_json, control_plane_secret,
+			policy_version, policy_hash, policy_issued_at, local_storage_roots_json, network_policy, wakeup_mode,
+			secret_scopes_json, allowed_telegram_user_ids_json, status, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		"family-group", "house", "telegram_dm", "1001", int64(1001),
+		"telegram_group",
+		`{"charter":"v43 durable child","capability_envelope":["group_reply"],"outbound_mode":"read_only","drift_policy":"admin_review"}`,
+		`{}`,
+		`{"capability_envelope":["group_reply"],"allowed_outbound_modes":["read_only"]}`,
+		`{"backend":"native","native_provider":"openrouter","api_key":"sk-or-v43","model":"openrouter/test"}`,
+		"secret-v43", int64(7), "policy-hash-v43", createdAt, `["/tmp/family-group"]`, "restricted", "remote_control_plane",
+		`["telegram_bot"]`, `[1001]`, "active", createdAt, updatedAt,
+	); err != nil {
+		t.Fatalf("insert v43 durable agent: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO durable_agent_remote_enrollments(
+			agent_id, parent_control_url, key_fingerprint, protocol_version, status, last_sequence, enrolled_at, last_seen_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		"family-group", "https://parent.example.test", "fingerprint-v43", "v1", "active", int64(41), createdAt, updatedAt, updatedAt,
+	); err != nil {
+		t.Fatalf("insert v43 enrollment: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO durable_agent_control_receipts(agent_id, message_id, message_kind, sequence, received_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, "family-group", "msg-v43-1", "policy_poll", int64(39), updatedAt); err != nil {
+		t.Fatalf("insert v43 receipt: %v", err)
+	}
+}
+
+func assertSchemaVersion(t *testing.T, db *sql.DB, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&got); err != nil {
+		t.Fatalf("query schema version: %v", err)
+	}
+	if got != want {
+		t.Fatalf("schema version = %d, want %d", got, want)
+	}
+}
+
+func assertSQLiteColumn(t *testing.T, db *sql.DB, tableName string, columnName string) {
+	t.Helper()
+	var count int
+	query := "SELECT COUNT(1) FROM pragma_table_info(" + sqliteStringLiteral(tableName) + ") WHERE name = ?"
+	if err := db.QueryRow(query, columnName).Scan(&count); err != nil {
+		t.Fatalf("query column %s.%s: %v", tableName, columnName, err)
+	}
+	if count != 1 {
+		t.Fatalf("column %s.%s count = %d, want 1", tableName, columnName, count)
+	}
+}
+
+func assertSQLiteTable(t *testing.T, db *sql.DB, tableName string) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?`, tableName).Scan(&count); err != nil {
+		t.Fatalf("query table %s: %v", tableName, err)
+	}
+	if count != 1 {
+		t.Fatalf("table %s count = %d, want 1", tableName, count)
+	}
+}
+
+func assertSQLiteIndex(t *testing.T, db *sql.DB, indexName string) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?`, indexName).Scan(&count); err != nil {
+		t.Fatalf("query index %s: %v", indexName, err)
+	}
+	if count != 1 {
+		t.Fatalf("index %s count = %d, want 1", indexName, count)
+	}
+}

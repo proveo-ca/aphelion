@@ -1,0 +1,300 @@
+[identity]
+user_agent = ""
+project_name = "aphelion"
+governor_name = ""
+face_name = ""
+anonymous_profile = false
+
+[telegram]
+bot_token = "telegram-bot-token"
+detach_pending_on_restart = true
+poll_timeout = 30
+stream_edit_interval = "300ms"
+stream_cursor = " ▉"
+tool_progress = "all"
+tool_progress_style = "semantic"
+tool_progress_window = 4
+tool_progress_cleanup = false
+
+[telegram.media]
+download_max_size = "20MB"
+auto_vision_photos = true
+auto_vision_documents = true
+extract_pdf_text = true
+max_pdf_bytes = "8MB"
+
+[tailscale]
+enabled = false
+backend = "cli"
+cli_path = "tailscale"
+command_timeout = "5s"
+expected_tailnet = ""
+expected_hostname = ""
+expected_tags = []
+
+[tailscale.parent]
+enabled = false
+hostname = "aphelion"
+state_dir = "~/.aphelion/state/tailnet/parent"
+listen_addr = ":8765"
+auth_key_env = "APHELION_TS_AUTHKEY"
+auth_key_file = ""
+tags = []
+admin_login_names = []
+
+[principals.telegram]
+admin_user_ids = [123456789]
+
+[governor]
+backend = "auto"
+native_provider = "" # Empty lets providers.selection choose from configured providers.
+
+[governor.codex]
+auth_source = "auto"
+codex_home = ""
+base_url = "https://chatgpt.com/backend-api"
+model = "gpt-5.5"
+context_window = 250000
+transport_retries = 3
+
+[governor.brokerage]
+# Brokerage stops early on acceptance, repeated equivalent contracts, repeated
+# proposals, reject/authority-boundary decisions, elapsed time, or max rounds.
+min_rounds = 1
+max_rounds = 4
+absolute_max_rounds = 6
+max_elapsed = "20s"
+stable_contract_rounds = 2
+stop_on_stable_contract = true
+stop_on_repeated_proposal = true
+stop_on_reject = true
+
+[providers]
+selection = "auto" # "auto" chooses the first configured provider from auto_order; "manual" uses default/fallback_chain exactly.
+auto_order = ["openai", "anthropic", "openrouter"]
+default = ""
+# fallback_chain is omitted in auto mode so configured providers after the primary become fallbacks.
+# For a manual chain, set selection = "manual", default, and fallback_chain explicitly.
+# Add "gemini" or "ollama" to auto_order/default/fallback_chain to opt into those providers.
+
+[providers.anthropic]
+api_key = "anthropic-api-key"
+model = "claude-sonnet-4-6"
+max_tokens = 4096
+context_window = 200000
+cache_strategy = "explicit" # "auto" | "explicit" | "hybrid" | "off"
+cache_ttl = "5m"            # "5m" | "1h"
+
+[providers.openai]
+api_key = ""
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.5"
+fallback_models = ["gpt-5.4", "gpt-5.4-mini"]
+max_tokens = 16384
+context_window = 128000
+
+[providers.openrouter]
+api_key = ""
+base_url = "https://openrouter.ai/api/v1"
+model = "anthropic/claude-sonnet-4-6"
+max_tokens = 4096
+context_window = 200000
+
+[providers.gemini]
+api_key = ""
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+model = "gemini-3.1-pro"
+max_tokens = 16384
+context_window = 1048576
+
+[providers.ollama]
+base_url = "http://localhost:11434"
+model = "llama3.2"
+max_tokens = 4096
+context_window = 128000
+
+[openai.files]
+enabled = false
+purpose = "assistants"
+
+[openai.vector_stores]
+enabled = false
+default_store = ""
+
+[sandbox.profiles.admin]
+mode = "trusted"
+network = "allowlist"
+
+[sandbox.profiles.approved_user]
+mode = "isolated"
+readonly_root = true
+writable_paths = ["{user_workspace}", "{user_memory}", "/tmp"]
+readonly_paths = ["{global_root}", "{shared_memory_root}"]
+hidden_paths = ["~/.aphelion/aphelion.toml", "~/.config/aphelion/config.toml", "~/.ssh", "~/.gnupg"]
+network = "deny"
+# To permit isolated IPv4 egress, set network = "allowlist" and list explicit
+# host:port, ip:port, or cidr:port destinations. Install the sandbox network
+# helper, then run:
+# aphelion sandbox-net check --config ~/.aphelion/aphelion.toml
+# network_allow = ["api.openai.com:443"]
+
+[sandbox.profiles.durable_agent]
+mode = "isolated"
+readonly_root = true
+writable_paths = ["{working_root}", "{shared_memory_root}", "/tmp"]
+readonly_paths = ["{global_root}"]
+hidden_paths = ["~/.aphelion/aphelion.toml", "~/.config/aphelion/config.toml", "~/.ssh", "~/.gnupg"]
+network = "deny"
+# network_allow = ["api.openai.com:443"]
+
+[work]
+# auto uses Aphelion's native tool loop by default. Put "codex" first only
+# when a Codex work app-server is installed and reachable.
+executor = "auto"
+auto_order = ["native", "codex"]
+
+[work.codex]
+# Optional Codex app-server websocket address for governed repo work lanes.
+# Leave empty to make auto mode fall back to native execution.
+app_server_address = ""
+
+[autonomy]
+# Config owns the standing autonomy ceiling. Live authority behavior still runs
+# through proposals, leases, approvals, and grants; this section does not grant
+# new authority by itself.
+default_mode = "ask_first"
+ceiling = "leased"
+allow_live_overrides = true
+max_override_duration = "4h"
+
+[sessions]
+db_path = "~/.aphelion/state/sessions.db"
+idle_expiry = "24h"
+max_context_ratio = 0.90
+compaction_ratio = 0.70
+compaction_strategy = "summarize"
+
+[agent]
+prompt_root = "~/.aphelion/agent"
+exec_root = "/absolute/path/to/workspace"
+shared_memory_root = "~/.aphelion/agent"
+user_workspace_root = "~/.aphelion/state/isolated/workspaces"
+user_memory_root = "~/.aphelion/state/isolated/memory"
+max_iterations = 50
+tool_timeout = 300
+bootstrap_files = [
+  "SOUL.md",
+  "IDENTITY.md",
+  "USER.md",
+  "AGENTS.md",
+  "TOOLS.md",
+  "BOOTSTRAP.md",
+]
+dynamic_files = ["MEMORY.md", "HEARTBEAT.md", "SKILLS.md", "memory/knowledge.md", "memory/decisions.md", "memory/questions.md", "memory/rhizome.md", "memory/dreams.md"]
+bootstrap_max_chars = 20000
+bootstrap_total_max_chars = 950000
+daily_notes = true
+daily_notes_dir = "memory/daily"
+
+[tools]
+# Directory of external tool manifest JSON files. The bundled browse_page pilot
+# manifest lives at external-tools/browse_page/manifest.json relative to this repo.
+external_manifest_dir = ""
+
+[memory]
+session_search = false
+semantic_indexing = false
+
+[memory.semantic]
+enabled = false
+backend = "local"
+refresh = "manual"
+sources = ["MEMORY.md", "memory/knowledge.md", "memory/decisions.md"]
+include_daily_notes = true
+include_questions = false
+include_rhizome = false
+interactive_top_k = 5
+heartbeat_top_k = 12
+interactive_max_chars = 4000
+heartbeat_max_chars = 12000
+
+[memory.aggressive]
+enabled = false
+capture_every_turn = false
+prefetch_every_turn = false
+flush_on_session_boundary = false
+
+[memory.reflection]
+enabled = true
+every = "6h"
+
+[memory.decay]
+enabled = true
+hot_days = 3
+warm_days = 14
+cold_days = 30
+
+[memory.identity]
+preserve = ["SOUL.md", "IDENTITY.md", "IDOLUM.md", "MEMORY.md"]
+
+[memory.write_policy]
+direct_user_writes = "apply"
+reflection_writes = "propose"
+aggressive_writes = "propose"
+auto_accept_low_risk = false
+
+[thinking]
+effort = "medium"
+summary = "auto"
+
+[thinking.defaults]
+default = "medium"
+heartbeat = "low"
+cron = "low"
+recovery = "medium"
+
+[face]
+backend = "provider"
+
+[heartbeat]
+enabled = false
+every = "30m"
+target = "last"
+
+[heartbeat.active_hours]
+start = ""
+end = ""
+timezone = ""
+
+[cron]
+enabled = false
+
+[[cron.jobs]]
+id = "sample"
+every = "2h"
+prompt = "Summarize anything worth surfacing to the admin."
+delivery = "none"
+enabled = false
+
+[nocturne]
+enabled = false
+check_every = "15m"
+window_start = "23:00"
+window_end = "07:00"
+timezone = ""
+artifact_dir = "memory/nocturne"
+prompt = ""
+confirmation = "Nightly reflection complete"
+
+[voice]
+mode = "off"
+# off = always text replies
+# auto = reply with voice to voice/audio input and text to text input
+# all = always synthesize spoken replies
+openai_api_key = ""
+openai_base_url = ""
+openai_model = "whisper-1"
+elevenlabs_api_key = ""
+elevenlabs_base_url = ""
+elevenlabs_voice_id = ""
+elevenlabs_model_id = "eleven_multilingual_v2"

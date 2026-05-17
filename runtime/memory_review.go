@@ -1,0 +1,316 @@
+//go:build linux
+
+package runtime
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/idolum-ai/aphelion/core"
+	memstore "github.com/idolum-ai/aphelion/memory"
+	"github.com/idolum-ai/aphelion/principal"
+	"github.com/idolum-ai/aphelion/session"
+)
+
+const (
+	memoryReviewItemLimit     = 6
+	memoryReviewExcerptMaxLen = 260
+	memoryReviewDefaultQuery  = "current priorities and open questions"
+)
+
+func (r *Runtime) MemoryReviewSnapshot(ctx context.Context, chatID int64, senderID int64, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
+	key := session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)}
+	return r.MemoryReviewSnapshotForKey(ctx, key, senderID, source)
+}
+
+func (r *Runtime) MemoryReviewSnapshotForKey(ctx context.Context, key session.SessionKey, senderID int64, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
+	if r == nil || r.store == nil {
+		return core.MemoryReviewSnapshot{}, fmt.Errorf("runtime unavailable")
+	}
+	actor, ok := r.resolver.ResolveTelegramUser(senderID)
+	if !ok {
+		return core.MemoryReviewSnapshot{}, ErrPrincipalDenied
+	}
+
+	source = core.NormalizeMemoryReviewSource(string(source))
+	switch source {
+	case core.MemoryReviewSourceSemanticShared, core.MemoryReviewSourceSemanticLocal:
+		return r.memoryReviewSemantic(ctx, key, actor, source)
+	default:
+		return r.memoryReviewSessionRecent(key, source)
+	}
+}
+
+func (r *Runtime) MemoryFocus(chatID int64) (core.MemoryFocus, bool) {
+	return r.MemoryFocusForKey(session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)})
+}
+
+func (r *Runtime) SetMemoryFocus(chatID int64, focus core.MemoryFocus) {
+	r.SetMemoryFocusForKey(session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)}, focus)
+}
+
+func (r *Runtime) ClearMemoryFocus(chatID int64) bool {
+	return r.ClearMemoryFocusForKey(session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)})
+}
+
+func (r *Runtime) MemoryFocusForKey(key session.SessionKey) (core.MemoryFocus, bool) {
+	if r == nil || key.ChatID == 0 {
+		return core.MemoryFocus{}, false
+	}
+	sessionID := session.SessionIDForKey(key)
+	r.memoryFocusMu.RLock()
+	defer r.memoryFocusMu.RUnlock()
+	focus, ok := r.memoryFocusBySession[sessionID]
+	if !ok || !focus.Active() {
+		return core.MemoryFocus{}, false
+	}
+	return focus, true
+}
+
+func (r *Runtime) SetMemoryFocusForKey(key session.SessionKey, focus core.MemoryFocus) {
+	if r == nil || key.ChatID == 0 || !focus.Active() {
+		return
+	}
+	sessionID := session.SessionIDForKey(key)
+	r.memoryFocusMu.Lock()
+	defer r.memoryFocusMu.Unlock()
+	if r.memoryFocusBySession == nil {
+		r.memoryFocusBySession = make(map[string]core.MemoryFocus)
+	}
+	r.memoryFocusBySession[sessionID] = focus
+}
+
+func (r *Runtime) ClearMemoryFocusForKey(key session.SessionKey) bool {
+	if r == nil || key.ChatID == 0 {
+		return false
+	}
+	sessionID := session.SessionIDForKey(key)
+	r.memoryFocusMu.Lock()
+	defer r.memoryFocusMu.Unlock()
+	if r.memoryFocusBySession == nil {
+		return false
+	}
+	if _, ok := r.memoryFocusBySession[sessionID]; !ok {
+		return false
+	}
+	delete(r.memoryFocusBySession, sessionID)
+	return true
+}
+
+func (r *Runtime) memoryReviewSessionRecent(key session.SessionKey, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
+	snapshot := core.MemoryReviewSnapshot{
+		GeneratedAt: time.Now().UTC(),
+		Source:      source,
+	}
+	sess, err := r.store.Load(key)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			return core.MemoryReviewSnapshot{}, err
+		}
+	}
+	snapshot.Query = memoryReviewSeedQueryFromSession(sess)
+	if strings.TrimSpace(snapshot.Query) == "" {
+		snapshot.Query = memoryReviewDefaultQuery
+	}
+
+	candidates := memoryReviewCandidatesFromSession("session", "", sess)
+	if session.NormalizeScopeRef(key.Scope).Kind == session.ScopeKindTelegramThread {
+		sort.SliceStable(candidates, func(i, j int) bool {
+			return candidates[i].createdAt.After(candidates[j].createdAt)
+		})
+		items := make([]core.MemoryReviewItem, 0, memoryReviewItemLimit)
+		for _, candidate := range candidates {
+			items = append(items, candidate.item)
+			if len(items) == memoryReviewItemLimit {
+				break
+			}
+		}
+		snapshot.Items = items
+		return snapshot, nil
+	}
+	threads, err := r.store.ListTelegramThreads(key.ChatID, 12)
+	if err != nil {
+		return core.MemoryReviewSnapshot{}, err
+	}
+	for _, thread := range threads {
+		threadKey := session.SessionKey{ChatID: key.ChatID, UserID: 0, Scope: telegramThreadScopeRef(key.ChatID, thread.ThreadID)}
+		threadSess, err := r.store.Load(threadKey)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return core.MemoryReviewSnapshot{}, err
+		}
+		candidates = append(candidates, memoryReviewCandidatesFromSession(
+			fmt.Sprintf("thread:%d", thread.ThreadID),
+			fmt.Sprintf("thread=%d ", thread.ThreadID),
+			threadSess,
+		)...)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].createdAt.After(candidates[j].createdAt)
+	})
+	items := make([]core.MemoryReviewItem, 0, memoryReviewItemLimit)
+	for _, candidate := range candidates {
+		items = append(items, candidate.item)
+		if len(items) == memoryReviewItemLimit {
+			break
+		}
+	}
+	snapshot.Items = items
+	return snapshot, nil
+}
+
+type memoryReviewCandidate struct {
+	item      core.MemoryReviewItem
+	createdAt time.Time
+}
+
+func memoryReviewCandidatesFromSession(idPrefix string, labelPrefix string, sess *session.Session) []memoryReviewCandidate {
+	if sess == nil {
+		return nil
+	}
+	var out []memoryReviewCandidate
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		msg := sess.Messages[i]
+		role := strings.TrimSpace(strings.ToLower(msg.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			continue
+		}
+		if role == "user" && strings.HasPrefix(content, "/") {
+			continue
+		}
+		out = append(out, memoryReviewCandidate{
+			item: core.MemoryReviewItem{
+				ID:      fmt.Sprintf("%s:%d:%s:%d", strings.TrimSpace(idPrefix), msg.TurnIndex, role, len(out)+1),
+				Label:   fmt.Sprintf("%sturn=%d role=%s", labelPrefix, msg.TurnIndex, role),
+				Excerpt: truncateMemoryReviewText(content, memoryReviewExcerptMaxLen),
+			},
+			createdAt: msg.CreatedAt,
+		})
+	}
+	return out
+}
+
+func (r *Runtime) memoryReviewSemantic(ctx context.Context, key session.SessionKey, actor principal.Principal, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
+	snapshot := core.MemoryReviewSnapshot{
+		GeneratedAt: time.Now().UTC(),
+		Source:      source,
+	}
+	if r.semantic == nil || !r.semantic.Enabled() {
+		return snapshot, fmt.Errorf("semantic memory review is not configured")
+	}
+	scope, err := r.scopeForPrincipal(actor)
+	if err != nil {
+		return core.MemoryReviewSnapshot{}, fmt.Errorf("resolve principal scope: %w", err)
+	}
+	query := r.memoryReviewSeedQuery(key)
+	if strings.TrimSpace(query) == "" {
+		query = memoryReviewDefaultQuery
+	}
+	snapshot.Query = query
+
+	semanticScope := "shared"
+	principalID := ""
+	if source == core.MemoryReviewSourceSemanticLocal && actor.Role == principal.RoleApprovedUser && actor.TelegramUserID > 0 {
+		semanticScope = "principal"
+		principalID = fmt.Sprintf("%d", actor.TelegramUserID)
+	}
+	hits, err := r.semantic.Search(ctx, memstore.SemanticSearchRequest{
+		Root:        dynamicPromptRoot(scope),
+		Scope:       semanticScope,
+		PrincipalID: principalID,
+		Query:       query,
+		Mode:        memstore.SemanticModeInteractive,
+		Limit:       memoryReviewItemLimit,
+		MaxLen:      2400,
+		Now:         time.Now().UTC(),
+	})
+	if err != nil {
+		return core.MemoryReviewSnapshot{}, err
+	}
+	items := make([]core.MemoryReviewItem, 0, len(hits))
+	for idx, hit := range hits {
+		label := fmt.Sprintf("source=%s kind=%s score=%.2f", strings.TrimSpace(hit.Source), strings.TrimSpace(hit.Kind), hit.Score)
+		items = append(items, core.MemoryReviewItem{
+			ID:      fmt.Sprintf("semantic:%s:%d", semanticScope, idx+1),
+			Label:   label,
+			Excerpt: truncateMemoryReviewText(strings.TrimSpace(hit.Excerpt), memoryReviewExcerptMaxLen),
+			Score:   hit.Score,
+		})
+	}
+	snapshot.Items = items
+	return snapshot, nil
+}
+
+func (r *Runtime) memoryReviewSeedQuery(key session.SessionKey) string {
+	sess, err := r.store.Load(key)
+	if err != nil {
+		return ""
+	}
+	return memoryReviewSeedQueryFromSession(sess)
+}
+
+func (r *Runtime) applyMemoryFocusToInbound(msg core.InboundMessage, key session.SessionKey) core.InboundMessage {
+	if r == nil || strings.TrimSpace(msg.DurableAgentID) != "" {
+		return msg
+	}
+	raw := strings.TrimSpace(msg.Text)
+	if raw == "" || strings.HasPrefix(raw, "/") || msg.Origin == core.InboundOriginTurnAuthorization {
+		return msg
+	}
+	focus, ok := r.MemoryFocusForKey(key)
+	if !ok || !focus.Active() {
+		return msg
+	}
+	lines := []string{
+		"MEMORY_FOCUS_CONTEXT",
+		fmt.Sprintf("source=%s", strings.TrimSpace(string(focus.Source))),
+		fmt.Sprintf("label=%s", strings.TrimSpace(focus.Label)),
+		fmt.Sprintf("query=%s", strings.TrimSpace(focus.Query)),
+	}
+	if excerpt := strings.TrimSpace(focus.Excerpt); excerpt != "" {
+		lines = append(lines, fmt.Sprintf("excerpt=%s", excerpt))
+	}
+	lines = append(lines, "Use this memory focus as the active topic unless the user explicitly pivots.", "", raw)
+	msg.Text = strings.Join(lines, "\n")
+	return msg
+}
+
+func memoryReviewSeedQueryFromSession(sess *session.Session) string {
+	if sess == nil {
+		return ""
+	}
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		msg := sess.Messages[i]
+		if strings.TrimSpace(strings.ToLower(msg.Role)) != "user" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" || strings.HasPrefix(content, "/") {
+			continue
+		}
+		return truncateMemoryReviewText(content, 240)
+	}
+	return ""
+}
+
+func truncateMemoryReviewText(text string, max int) string {
+	text = strings.TrimSpace(text)
+	if max <= 0 {
+		max = 240
+	}
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+	return strings.TrimSpace(string(runes[:max])) + "..."
+}
