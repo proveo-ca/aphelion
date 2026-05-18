@@ -20,6 +20,7 @@ import (
 )
 
 const durableWakeInferenceUnavailableSignal = "Inference backend is unavailable."
+const durableWakeInferenceUnavailableFallback = durableWakeInferenceUnavailableSignal + " This turn did not complete. You can /stop to cancel current work and try again."
 const durableWakeAwakeLockStaleAfter = 30 * time.Minute
 const durableWakePollParallelism = 3
 const durableWakePollAgentTimeout = 30 * time.Minute
@@ -365,8 +366,7 @@ func durableTurnInferenceUnavailable(result *turn.Result, summary string) bool {
 }
 
 func durableWakeInferenceUnavailable(summary string) bool {
-	summary = strings.TrimSpace(summary)
-	return strings.Contains(summary, durableWakeInferenceUnavailableSignal)
+	return strings.TrimSpace(summary) == durableWakeInferenceUnavailableFallback
 }
 
 func finalizeDurableWakeFailure(plan durableWakeTurnPlan, turnSummary string, cause error) error {
