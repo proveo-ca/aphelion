@@ -24,6 +24,14 @@ func TestTelegramThreadCreateIsPerChatAndIdempotentByUpdate(t *testing.T) {
 	if !created || first.ThreadID != 1 || first.Status != TelegramThreadStatusOpen {
 		t.Fatalf("first = %#v created=%v, want new open thread 1", first, created)
 	}
+	threadSessionID := SessionIDForKey(SessionKey{ChatID: 1001, Scope: TelegramThreadScopeRef(1001, first.ThreadID)})
+	var threadSessionCount int
+	if err := store.db.QueryRow(`SELECT COUNT(1) FROM sessions WHERE session_id = ?`, threadSessionID).Scan(&threadSessionCount); err != nil {
+		t.Fatalf("query thread session count: %v", err)
+	}
+	if threadSessionCount != 1 {
+		t.Fatalf("thread session count = %d, want durable session row at create time", threadSessionCount)
+	}
 	again, created, err := store.CreateTelegramThreadForUpdate(1001, 2002, 301, 401, "first task replay", now.Add(time.Second))
 	if err != nil {
 		t.Fatalf("CreateTelegramThreadForUpdate(replay) err = %v", err)
@@ -260,6 +268,36 @@ func TestTelegramThreadIDForReplyMessageUsesThreadLedgers(t *testing.T) {
 	}
 }
 
+func TestRecordTelegramThreadMessageEnsuresSessionAndReplyLedger(t *testing.T) {
+	t.Parallel()
+
+	store := newTestSQLiteStore(t)
+	defer store.Close()
+
+	thread, _, err := store.CreateTelegramThreadForUpdate(1001, 2002, 301, 401, "", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("CreateTelegramThreadForUpdate() err = %v", err)
+	}
+	sessionID := SessionIDForKey(SessionKey{ChatID: 1001, Scope: TelegramThreadScopeRef(1001, thread.ThreadID)})
+	if _, err := store.db.Exec(`DELETE FROM sessions WHERE session_id = ?`, sessionID); err != nil {
+		t.Fatalf("delete thread session fixture: %v", err)
+	}
+
+	if err := store.RecordTelegramThreadMessage(1001, thread.ThreadID, 9901, "thread_guide", "thread_guide", time.Now().UTC()); err != nil {
+		t.Fatalf("RecordTelegramThreadMessage() err = %v", err)
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(1) FROM sessions WHERE session_id = ?`, sessionID).Scan(&count); err != nil {
+		t.Fatalf("query thread session count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("thread session count = %d, want repaired session", count)
+	}
+	if got, ok, err := store.TelegramThreadIDForReplyMessage(1001, 9901); err != nil || !ok || got != thread.ThreadID {
+		t.Fatalf("TelegramThreadIDForReplyMessage(guide) = %d ok=%v err=%v, want thread %d", got, ok, err, thread.ThreadID)
+	}
+}
+
 func TestRebindTelegramIngressSessionPreservesRecoverableThreadInbound(t *testing.T) {
 	t.Parallel()
 
@@ -293,4 +331,45 @@ func TestRebindTelegramIngressSessionPreservesRecoverableThreadInbound(t *testin
 
 func coreTokenUsageZero() core.TokenUsage {
 	return core.TokenUsage{}
+}
+
+func TestTelegramThreadDisplaySlotReusesClosedSlotAndArchivesName(t *testing.T) {
+	t.Parallel()
+
+	store := newTestSQLiteStore(t)
+	defer store.Close()
+
+	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.Local)
+	first, _, err := store.CreateTelegramThreadForUpdate(1001, 2002, 301, 401, "first task", now)
+	if err != nil {
+		t.Fatalf("CreateTelegramThreadForUpdate(first) err = %v", err)
+	}
+	second, _, err := store.CreateTelegramThreadForUpdate(1001, 2002, 302, 402, "second task", now)
+	if err != nil {
+		t.Fatalf("CreateTelegramThreadForUpdate(second) err = %v", err)
+	}
+	if first.DisplaySlot != 1 || second.DisplaySlot != 2 {
+		t.Fatalf("display slots first=%d second=%d, want 1/2", first.DisplaySlot, second.DisplaySlot)
+	}
+	closed, changed, err := store.CloseTelegramThread(1001, second.ThreadID, "done", now)
+	if err != nil || !changed {
+		t.Fatalf("CloseTelegramThread() changed=%t err=%v", changed, err)
+	}
+	if closed.DisplaySlot != 0 || closed.ArchivedDisplayName != "2-2026-05-17" {
+		t.Fatalf("closed = %#v, want slot cleared and archived display name", closed)
+	}
+	third, _, err := store.CreateTelegramThreadForUpdate(1001, 2002, 303, 403, "third task", now)
+	if err != nil {
+		t.Fatalf("CreateTelegramThreadForUpdate(third) err = %v", err)
+	}
+	if third.DisplaySlot != 2 {
+		t.Fatalf("third display slot = %d, want reused slot 2", third.DisplaySlot)
+	}
+	closedAgain, changed, err := store.CloseTelegramThread(1001, third.ThreadID, "done again", now)
+	if err != nil || !changed {
+		t.Fatalf("CloseTelegramThread(third) changed=%t err=%v", changed, err)
+	}
+	if closedAgain.ArchivedDisplayName != "2-2026-05-17-1" {
+		t.Fatalf("archived name = %q, want collision suffix", closedAgain.ArchivedDisplayName)
+	}
 }

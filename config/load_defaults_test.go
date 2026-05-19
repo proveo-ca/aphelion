@@ -67,8 +67,8 @@ external_manifest_dir = "./external-tools"
 	if cfg.Telegram.Media.DownloadMaxSize != "20MB" || !cfg.Telegram.Media.AutoVisionPhotos || !cfg.Telegram.Media.AutoVisionDocs || !cfg.Telegram.Media.ExtractPDFText || cfg.Telegram.Media.MaxPDFBytes != "8MB" {
 		t.Fatalf("telegram media defaults = %#v, want 20MB + auto vision/pdf extract", cfg.Telegram.Media)
 	}
-	if !cfg.Recovery.Watchdog.Enabled || cfg.Recovery.Watchdog.StaleTurnThreshold != "3m" || cfg.Recovery.Watchdog.StaleTurnLimit != 8 || cfg.Recovery.Watchdog.RestartCooldown != "30m" || cfg.Recovery.Watchdog.MaxRestartAttempts != 1 {
-		t.Fatalf("recovery watchdog defaults = %#v, want enabled 3m/8/30m/1", cfg.Recovery.Watchdog)
+	if !cfg.Recovery.Watchdog.Enabled || cfg.Recovery.Watchdog.StaleTurnThreshold != "3m" || cfg.Recovery.Watchdog.StaleTurnLimit != 8 {
+		t.Fatalf("recovery watchdog defaults = %#v, want enabled 3m/8", cfg.Recovery.Watchdog)
 	}
 	if cfg.Tailscale.Enabled || cfg.Tailscale.Backend != "cli" || cfg.Tailscale.CLIPath != "tailscale" || cfg.Tailscale.CommandTimeout != "5s" {
 		t.Fatalf("tailscale defaults = %#v, want disabled cli backend", cfg.Tailscale)
@@ -468,8 +468,6 @@ export_dir = "~/tmp/tes-exports"
 enabled = false
 stale_turn_threshold = "12m"
 stale_turn_limit = 3
-restart_cooldown = "2h"
-max_restart_attempts = 2
 
 [agent]
 prompt_root = "~/agent"
@@ -641,7 +639,7 @@ elevenlabs_voice_id = "voice-123"
 	if cfg.Agent.MaxIterations != 77 || cfg.Agent.ToolTimeout != 9 {
 		t.Fatalf("agent limits = %d/%d, want 77/9", cfg.Agent.MaxIterations, cfg.Agent.ToolTimeout)
 	}
-	if cfg.Recovery.Watchdog.Enabled || cfg.Recovery.Watchdog.StaleTurnThreshold != "12m" || cfg.Recovery.Watchdog.StaleTurnLimit != 3 || cfg.Recovery.Watchdog.RestartCooldown != "2h" || cfg.Recovery.Watchdog.MaxRestartAttempts != 2 {
+	if cfg.Recovery.Watchdog.Enabled || cfg.Recovery.Watchdog.StaleTurnThreshold != "12m" || cfg.Recovery.Watchdog.StaleTurnLimit != 3 {
 		t.Fatalf("recovery.watchdog = %#v, want explicit overrides", cfg.Recovery.Watchdog)
 	}
 	if cfg.Governor.Backend != "native" {
@@ -780,5 +778,39 @@ level = "debug"
 	}
 	if cfg.Providers.Default != "anthropic" {
 		t.Fatalf("providers.default = %q, want anthropic", cfg.Providers.Default)
+	}
+}
+
+func TestLoadRejectsRemovedRecoveryWatchdogRestartFieldsWithoutCompatibilityAlias(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	raw := `
+[telegram]
+bot_token = "tg-test"
+
+[principals.telegram]
+admin_user_ids = [123]
+
+[recovery.watchdog]
+restart_cooldown = "30m"
+max_restart_attempts = 1
+`
+	if err := os.WriteFile(configPath, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load() err = nil, want hard rejection for removed watchdog restart fields")
+	}
+	for _, want := range []string{
+		"recovery.watchdog.restart_cooldown has been removed",
+		"stale turn recovery now interrupts scoped turns instead of restarting the service",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Load() err = %v, want %q", err, want)
+		}
 	}
 }

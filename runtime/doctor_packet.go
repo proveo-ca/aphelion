@@ -33,6 +33,9 @@ func (r *Runtime) buildDoctorDiagnosticPacket(ctx context.Context, input doctorD
 	writeDoctorSection(&b, "Effective Runtime")
 	r.writeDoctorRuntimeConfig(&b, input.Exec, input.Scope)
 
+	writeDoctorSection(&b, "Provider Health")
+	r.writeDoctorProviderHealth(&b, now)
+
 	writeDoctorSection(&b, "Autonomy")
 	r.writeDoctorAutonomyStatus(&b, input.Key, input.Message.SenderID, now)
 
@@ -45,6 +48,9 @@ func (r *Runtime) buildDoctorDiagnosticPacket(ctx context.Context, input doctorD
 	writeDoctorSection(&b, "Current Session")
 	writeDoctorSessionSummary(&b, input.Session)
 	writeDoctorRecentMessages(&b, input.Session, doctorMessageLimit)
+
+	writeDoctorSection(&b, "Telegram Threads")
+	r.writeDoctorTelegramThreads(&b, input.Key)
 
 	writeDoctorSection(&b, "Mission Ledger")
 	r.writeDoctorMissionLedger(&b, input.Key, now)

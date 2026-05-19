@@ -79,6 +79,7 @@ Current command surface:
   - Mode and approvals provide preset buttons for refresh, off, and bounded 15-minute workspace/deploy/all windows. Limits is read-only.
   - Supports `/auto mode leased <duration> [all|workspace|deploy] [reason]`.
   - Supports `/auto approvals <duration> [all|workspace|deploy] [uses=N] [reason]`.
+  - Supports explicit side-thread targeting with `/auto thread <id> mode ...` and `/auto thread <id> approvals ...`; default `/auto` remains default-chat scoped.
   - Mode opens the automation gate. Approvals provide spendable prompt budget. Automatic approval requires both.
   - If config is tightened later, live mode overrides outside the new ceiling are ignored and `/health diagnose` reports the precedence block.
 - `/stop`
@@ -177,7 +178,12 @@ Chat-scoped status now reports live work telemetry, not only router occupancy:
 - `hidden_inputs` categories plus provenance summary carried in floor metadata.
 - `delivery` state that distinguishes in-flight, delivered, persisted-without-delivery, and delivery-failure paths.
 - `detached_work` counters for pending decisions/continuations/recovery/stale-turn work.
+- `provider_health` on system health/status views, summarizing recent provider
+  failures, retries, failovers, successes, and the latest failure reason.
 - `sandbox_readiness` warnings when an execution profile cannot currently enforce its configured isolation or network policy.
+- `watchdog` recovery state. Stale-turn recovery interrupts the exact stale
+  turn rows and matching Telegram ingress rows before surfacing
+  `watchdog.recovered`; it does not restart the process as the first repair.
 - `current_signal` as a compact one-line machine signal (phase/tool/queue/blocked source).
 
 Durables status (`Durables` button, admin-only):

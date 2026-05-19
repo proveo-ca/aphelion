@@ -32,6 +32,14 @@ admin chat.
 Use `/status` when the question is about active work, pending approvals,
 durable-agent state, or a specific chat.
 
+System health includes provider pressure as a typed projection. A
+`provider_health` line summarizes recent provider failures, retries, failovers,
+and successes across the last few hours, with the latest provider/model/reason
+when a failure is still the newest evidence. Treat `degraded` as an inference
+surface issue before assuming the turn logic or Telegram transport is broken;
+`residual_risk` means a later success exists but recent provider pressure is
+still worth knowing about.
+
 Aphelion advances Telegram offsets only after an update is durably accepted,
 durably handled, durably queued for a turn, terminally skipped/completed, or
 recorded as a failure. Accepted but not-yet-started updates live in
@@ -61,6 +69,12 @@ prompt's timeout default through the same synthetic Telegram ingress ledger.
 Restart-loaded approval prompts that cannot be resumed are detached as stale; the
 newest prompt is authoritative.
 
+The stale-turn watchdog is a scoped recovery mechanism. When it finds stale
+running turns, it records the observation, cancels any matching in-process turn,
+interrupts those exact turn-run rows and matching Telegram ingress rows, then
+records `watchdog.recovered`. A process restart remains an explicit operator
+action; watchdog recovery should leave unrelated chats and threads alone.
+
 ## Keep Parallel Requests Apart
 
 Use side threads when you want to keep separate requests from sharing one live
@@ -82,7 +96,8 @@ turn. Later messages that start with `(thread N)` route to that existing open
 thread. Replies and progress cards from a side thread begin with `(thread N)` so
 the visible radio traffic stays attributable. If you reply to a message that
 Aphelion can match to a side thread through its Telegram ingress or outbound
-ledger, the reply routes to that thread.
+ledger, progress-card row, thread-created row, or thread-guide row, the reply
+routes to that thread.
 
 Thread targeting is lane selection, not a shortcut around governance. A
 targeted message still passes through the busy/interrupt gate, artifact
@@ -149,9 +164,14 @@ duration, scope, use count, and reason.
 approvals` grants bounded approval-prompt budget. `/auto limits` shows the
 configured default, ceiling, live override setting, and maximum live mode
 duration. Automatic approval requires both an open mode gate and a matching
-approval grant.
+approval grant. By default `/auto` applies to the main/default Telegram chat
+scope. To target a side thread explicitly, use `/auto thread <id> mode ...` and
+`/auto thread <id> approvals ...`; the target thread must exist and still be
+open, and its grant/mode is consumed only by that thread.
 
 ## Manage Work Surfaces
+
+`/threads` shows open side threads by default. Use the **Show non-open** button, or `/threads nonopen`, to inspect closed/absorbed threads without mixing them into the default work view. Open side threads use reusable display slots, so when slot 2 is closed the next new side thread can become thread 2 again. Closed threads keep their durable internal thread id and receive an archived display name like `2-2026-05-17`, with `-1`, `-2`, etc. added if that archived name is already taken on the server-local date. Admins can audit or repair old rows with `telegram-threads sanitize` (`--apply` to mutate; dry-run by default).
 
 Use `/agents` to inspect durable agents and open chat controls.
 
@@ -189,3 +209,21 @@ machine-readable mirrors.
 
 When a panel and a trace disagree, prefer the canonical records named by the
 trace and then check `/health diagnose`.
+
+## Scoped Telegram Thread and Auto-Control Smoke Checklist
+
+Before deploying changes that affect scoped Telegram threads, auto controls, recovery, or schema invariants:
+
+- Run `go test ./...`.
+- Run `aphelion --check-config --config ~/.aphelion/aphelion.toml` and remove unsupported watchdog restart keys if present (`recovery.watchdog.restart_cooldown`, `recovery.watchdog.max_restart_attempts`).
+- Run a build check for the service binary.
+- Take a sessions DB backup.
+- Run schema verification against a copied DB, for example `aphelion schema verify --db copied-sessions.db`.
+- Check `/health diagnose` after startup.
+- Run `/threads` and verify only visible open thread numbers are shown in normal UI.
+- Create a side thread, reply to it, then verify replies still route to that visible thread number after restart.
+- Run `/absorb <visible-thread-number>` and verify that the visible label becomes available for the next open thread.
+- Run `/auto` in the default chat and verify no thread prefix is shown.
+- Run `/auto thread <visible-thread-number>` and verify the panel starts with `(thread N)`.
+- Verify a thread-scoped auto approval cannot approve default-chat work or another thread's work.
+- Observe durable-wake/provider warnings: repeated transient failures should stay compact and actionable, while permanent child blockers may interrupt chat.
