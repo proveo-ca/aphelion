@@ -130,6 +130,13 @@ type stubCommandRouter struct {
 	autoApproveStatusErr         error
 	autoApproveReturn            string
 	autoApproveErr               error
+	approvalWindowAction         string
+	approvalWindowOfferID        string
+	approvalWindowOfferSource    string
+	approvalWindowMessage        *core.InboundMessage
+	approvalWindowDuration       time.Duration
+	approvalWindowReturn         string
+	approvalWindowErr            error
 	autonomyChatID               int64
 	autonomySenderID             int64
 	autonomyArgs                 string

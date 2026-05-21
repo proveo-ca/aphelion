@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/decisionprojection"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/telegram"
 	toolpkg "github.com/idolum-ai/aphelion/tool"
@@ -43,22 +45,30 @@ func EditDecisionMessageClearingInlineKeyboard(ctx context.Context, sender Decis
 	return sender.EditMessageText(ctx, chatID, messageID, text, "")
 }
 
+type ApprovalWindowOfferer interface {
+	CreateApprovalWindowOfferForKey(ctx context.Context, key session.SessionKey, adminUserID int64, sourceKind string, sourceID string, sourceDecisionKind string) (session.ApprovalWindowOffer, bool, error)
+}
+
 type ExecApprover struct {
-	sender  DecisionSender
-	broker  *decision.Broker
-	timeout time.Duration
+	sender          DecisionSender
+	broker          *decision.Broker
+	timeout         time.Duration
+	approvalWindows ApprovalWindowOfferer
+	presentation    DecisionThreadResolver
 }
 
 type DurableMemoryDelegationApprover struct {
-	sender  DecisionSender
-	broker  *decision.Broker
-	timeout time.Duration
+	sender       DecisionSender
+	broker       *decision.Broker
+	timeout      time.Duration
+	presentation DecisionThreadResolver
 }
 
 type DurableSnapshotRestoreApprover struct {
-	sender  DecisionSender
-	broker  *decision.Broker
-	timeout time.Duration
+	sender       DecisionSender
+	broker       *decision.Broker
+	timeout      time.Duration
+	presentation DecisionThreadResolver
 }
 
 func (a *ExecApprover) Timeout() time.Duration {
@@ -71,6 +81,12 @@ func (a *ExecApprover) Timeout() time.Duration {
 func (a *ExecApprover) SetTimeout(timeout time.Duration) {
 	if a != nil {
 		a.timeout = timeout
+	}
+}
+
+func (a *ExecApprover) SetPresentation(presentation DecisionThreadResolver) {
+	if a != nil {
+		a.presentation = presentation
 	}
 }
 
@@ -87,6 +103,12 @@ func (a *DurableMemoryDelegationApprover) SetTimeout(timeout time.Duration) {
 	}
 }
 
+func (a *DurableMemoryDelegationApprover) SetPresentation(presentation DecisionThreadResolver) {
+	if a != nil {
+		a.presentation = presentation
+	}
+}
+
 func (a *DurableSnapshotRestoreApprover) Timeout() time.Duration {
 	if a == nil {
 		return 0
@@ -100,14 +122,25 @@ func (a *DurableSnapshotRestoreApprover) SetTimeout(timeout time.Duration) {
 	}
 }
 
-func NewExecApprover(sender DecisionSender, broker *decision.Broker, timeout time.Duration) *ExecApprover {
+func (a *DurableSnapshotRestoreApprover) SetPresentation(presentation DecisionThreadResolver) {
+	if a != nil {
+		a.presentation = presentation
+	}
+}
+
+func NewExecApprover(sender DecisionSender, broker *decision.Broker, timeout time.Duration, offerers ...ApprovalWindowOfferer) *ExecApprover {
 	if timeout <= 0 {
 		timeout = DefaultExecApprovalTimeout
 	}
+	var offerer ApprovalWindowOfferer
+	if len(offerers) > 0 {
+		offerer = offerers[0]
+	}
 	return &ExecApprover{
-		sender:  sender,
-		broker:  broker,
-		timeout: timeout,
+		sender:          sender,
+		broker:          broker,
+		timeout:         timeout,
+		approvalWindows: offerer,
 	}
 }
 
@@ -177,7 +210,13 @@ func (a *ExecApprover) ConfirmExec(ctx context.Context, req toolpkg.ExecApproval
 
 	if result.Choice == "approve" {
 		if result.Delivery.MessageID != 0 {
-			editApprovedDecisionConfirmation(ctx, a.sender, req.SessionKey.ChatID, result.Delivery.MessageID, "Proposal", result.DecisionID, decision.KindProposalApproval, formatExecProposalDetails(req))
+			rows, offerErr := a.approvalWindowOfferRows(ctx, req.SessionKey, req.Principal.TelegramUserID, result.DecisionID, string(decision.KindProposalApproval))
+			if offerErr != nil {
+				return toolpkg.ExecApprovalDecision{}, offerErr
+			}
+			if err := editApprovedDecisionConfirmation(ctx, a.sender, req.SessionKey, result.Delivery.MessageID, "Proposal", result.DecisionID, decision.KindProposalApproval, formatExecProposalDetails(req), rows, a.presentation); err != nil {
+				return toolpkg.ExecApprovalDecision{}, err
+			}
 		}
 		return toolpkg.ExecApprovalDecision{Approved: true}, nil
 	}
@@ -187,6 +226,7 @@ func (a *ExecApprover) ConfirmExec(ctx context.Context, req toolpkg.ExecApproval
 		if result.TimedOut {
 			text = "Proposal denied — approval timed out."
 		}
+		text = prefixDecisionTextForKey(req.SessionKey, a.presentation, text)
 		_ = EditDecisionMessageClearingInlineKeyboard(ctx, a.sender, req.SessionKey.ChatID, result.Delivery.MessageID, text)
 	}
 	return toolpkg.ExecApprovalDecision{Approved: false}, nil
@@ -220,7 +260,9 @@ func (a *DurableMemoryDelegationApprover) ConfirmDurableMemoryDelegation(ctx con
 	}
 	if result.Choice == "approve" {
 		if result.Delivery.MessageID != 0 {
-			editApprovedDecisionConfirmation(ctx, a.sender, req.SessionKey.ChatID, result.Delivery.MessageID, "Memory delegation", result.DecisionID, decision.KindMemoryDelegation, formatDurableMemoryDelegationDetails(req))
+			if err := editApprovedDecisionConfirmation(ctx, a.sender, req.SessionKey, result.Delivery.MessageID, "Memory delegation", result.DecisionID, decision.KindMemoryDelegation, formatDurableMemoryDelegationDetails(req), nil, a.presentation); err != nil {
+				return toolpkg.DurableMemoryDelegationApprovalDecision{}, err
+			}
 		}
 		return toolpkg.DurableMemoryDelegationApprovalDecision{Approved: true}, nil
 	}
@@ -229,6 +271,7 @@ func (a *DurableMemoryDelegationApprover) ConfirmDurableMemoryDelegation(ctx con
 		if result.TimedOut {
 			text = "Memory delegation denied — approval timed out."
 		}
+		text = prefixDecisionTextForKey(req.SessionKey, a.presentation, text)
 		_ = EditDecisionMessageClearingInlineKeyboard(ctx, a.sender, req.SessionKey.ChatID, result.Delivery.MessageID, text)
 	}
 	return toolpkg.DurableMemoryDelegationApprovalDecision{Approved: false, TimedOut: result.TimedOut}, nil
@@ -262,7 +305,9 @@ func (a *DurableSnapshotRestoreApprover) ConfirmDurableSnapshotRestore(ctx conte
 	}
 	if result.Choice == "approve" {
 		if result.Delivery.MessageID != 0 {
-			editApprovedDecisionConfirmation(ctx, a.sender, req.SessionKey.ChatID, result.Delivery.MessageID, "Snapshot restore", result.DecisionID, decision.KindSnapshotRestore, formatDurableSnapshotRestoreDetails(req))
+			if err := editApprovedDecisionConfirmation(ctx, a.sender, req.SessionKey, result.Delivery.MessageID, "Snapshot restore", result.DecisionID, decision.KindSnapshotRestore, formatDurableSnapshotRestoreDetails(req), nil, a.presentation); err != nil {
+				return toolpkg.DurableSnapshotRestoreApprovalDecision{}, err
+			}
 		}
 		return toolpkg.DurableSnapshotRestoreApprovalDecision{Approved: true}, nil
 	}
@@ -271,6 +316,7 @@ func (a *DurableSnapshotRestoreApprover) ConfirmDurableSnapshotRestore(ctx conte
 		if result.TimedOut {
 			text = "Snapshot restore denied — approval timed out."
 		}
+		text = prefixDecisionTextForKey(req.SessionKey, a.presentation, text)
 		_ = EditDecisionMessageClearingInlineKeyboard(ctx, a.sender, req.SessionKey.ChatID, result.Delivery.MessageID, text)
 	}
 	return toolpkg.DurableSnapshotRestoreApprovalDecision{Approved: false, TimedOut: result.TimedOut}, nil
@@ -340,42 +386,58 @@ func approvedDecisionConfirmationRowsExpanded(decisionID string, details string,
 	}}
 }
 
-func editApprovedDecisionConfirmation(ctx context.Context, sender DecisionSender, chatID int64, messageID int64, label string, decisionID string, kind decision.Kind, details string) {
-	if sender == nil || chatID == 0 || messageID == 0 {
-		return
+func editApprovedDecisionConfirmation(ctx context.Context, sender DecisionSender, key session.SessionKey, messageID int64, label string, decisionID string, kind decision.Kind, details string, extraRows [][]telegram.InlineButton, presentation DecisionThreadResolver) error {
+	if sender == nil || key.ChatID == 0 || messageID == 0 {
+		return nil
 	}
-	text := approvedDecisionConfirmationText(label, decisionID, kind, details)
-	if rows := approvedDecisionConfirmationRows(decisionID, details); len(rows) > 0 {
+	text := prefixDecisionTextForKey(key, presentation, approvedDecisionConfirmationText(label, decisionID, kind, details))
+	rows := appendTelegramRows(approvedDecisionConfirmationRows(decisionID, details), extraRows)
+	if len(rows) > 0 {
 		if editor, ok := sender.(DecisionKeyboardEditor); ok {
-			if err := editor.EditMessageTextWithInlineKeyboard(ctx, chatID, messageID, text, "", rows); err == nil {
-				return
+			if err := editor.EditMessageTextWithInlineKeyboard(ctx, key.ChatID, messageID, text, "", rows); err == nil {
+				return nil
+			} else if len(extraRows) > 0 {
+				replyTo := messageID
+				if _, sendErr := sender.SendInlineKeyboard(ctx, key.ChatID, text, rows, &replyTo); sendErr != nil {
+					return fmt.Errorf("edit approved decision confirmation with controls: %w; send fallback controls: %v", err, sendErr)
+				}
+				return nil
 			}
+		} else if len(extraRows) > 0 {
+			replyTo := messageID
+			if _, err := sender.SendInlineKeyboard(ctx, key.ChatID, text, rows, &replyTo); err != nil {
+				return fmt.Errorf("send approved decision fallback controls: %w", err)
+			}
+			return nil
 		}
 	}
-	_ = EditDecisionMessageClearingInlineKeyboard(ctx, sender, chatID, messageID, text)
+	return EditDecisionMessageClearingInlineKeyboard(ctx, sender, key.ChatID, messageID, text)
+}
+
+func (a *ExecApprover) approvalWindowOfferRows(ctx context.Context, key session.SessionKey, adminUserID int64, decisionID string, decisionKind string) ([][]telegram.InlineButton, error) {
+	if a == nil || a.approvalWindows == nil {
+		return nil, nil
+	}
+	offer, created, err := a.approvalWindows.CreateApprovalWindowOfferForKey(ctx, key, adminUserID, session.ApprovalWindowOfferSourceDecision, decisionID, decisionKind)
+	if err != nil || !created {
+		return nil, err
+	}
+	return telegramcommands.ApprovalWindowRowsForOffer(offer), nil
+}
+
+func appendTelegramRows(base [][]telegram.InlineButton, extra [][]telegram.InlineButton) [][]telegram.InlineButton {
+	out := append([][]telegram.InlineButton(nil), base...)
+	for _, row := range extra {
+		if len(row) == 0 {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func formatExecProposalDetails(req toolpkg.ExecApprovalRequest) string {
-	lines := make([]string, 0, 8)
-	if summary := strings.TrimSpace(req.Proposal.Summary); summary != "" {
-		lines = append(lines, summary)
-	}
-	if kind := strings.TrimSpace(req.Proposal.Kind); kind != "" {
-		lines = append(lines, fmt.Sprintf("Kind: %s", kind))
-	}
-	if whyNow := strings.TrimSpace(req.Proposal.WhyNow); whyNow != "" {
-		lines = append(lines, "", "Why now:", whyNow)
-	}
-	if bounded := strings.TrimSpace(req.Proposal.BoundedEffect); bounded != "" {
-		lines = append(lines, "", "If approved:", bounded)
-	}
-	if reason := strings.TrimSpace(req.Reason); reason != "" {
-		lines = append(lines, "", "Trigger:", reason)
-	}
-	if command := strings.TrimSpace(req.Command); command != "" {
-		lines = append(lines, "", "Command:", command)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+	return decisionprojection.FormatExecApprovalDetails(req.Proposal, req.Reason, req.Command, req.Workdir)
 }
 
 func formatDurableMemoryDelegationDetails(req toolpkg.DurableMemoryDelegationApprovalRequest) string {
