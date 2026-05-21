@@ -69,6 +69,13 @@ func (r *Runtime) ApproveContinuationForKey(key session.SessionKey, approverID i
 		r.recordExecutionEvent(key, core.ExecutionEventContinuationBlocked, "continuation", "blocked", continuationExecutionPayload(state), now)
 		return state, err
 	}
+	if compilation := continuationAuthorityCompilation(state); compilation.Invalid() {
+		blocked, _, blockErr := r.blockInvalidContinuationAuthorityContract(context.Background(), key, core.InboundMessage{ChatID: key.ChatID}, state, "approval", now, false)
+		if blockErr != nil {
+			return session.ContinuationState{}, blockErr
+		}
+		return blocked, fmt.Errorf("continuation authority contract invalid: %s", continuationAuthorityContractInvalidReason(compilation))
+	}
 	if continuationActionIsPlanLeaseApproval(state) && !state.ApprovalBundle.Active() {
 		state = continuationStateWithPlanLeaseApprovalConsumed(state, now)
 	}

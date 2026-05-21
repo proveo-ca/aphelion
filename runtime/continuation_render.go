@@ -13,6 +13,9 @@ import (
 )
 
 func (r *Runtime) sendContinuationApprovalPrompt(ctx context.Context, key session.SessionKey, msg core.InboundMessage, state session.ContinuationState, text string) error {
+	if _, blocked, err := r.blockInvalidContinuationAuthorityContract(ctx, key, msg, state, "approval_prompt", time.Now().UTC(), true); blocked || err != nil {
+		return err
+	}
 	sender, ok := r.continuationApprovalPromptSender()
 	if !ok {
 		return nil
