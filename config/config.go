@@ -97,14 +97,16 @@ type TelegramMediaConfig struct {
 }
 
 type TailscaleConfig struct {
-	Enabled          bool                  `toml:"enabled"`
-	Backend          string                `toml:"backend"`
-	CLIPath          string                `toml:"cli_path"`
-	CommandTimeout   string                `toml:"command_timeout"`
-	ExpectedTailnet  string                `toml:"expected_tailnet"`
-	ExpectedHostname string                `toml:"expected_hostname"`
-	ExpectedTags     []string              `toml:"expected_tags"`
-	Parent           TailscaleParentConfig `toml:"parent"`
+	Enabled           bool                  `toml:"enabled"`
+	Backend           string                `toml:"backend"`
+	CLIPath           string                `toml:"cli_path"`
+	SSHPath           string                `toml:"ssh_path"`
+	CommandTimeout    string                `toml:"command_timeout"`
+	SSHCommandTimeout string                `toml:"ssh_command_timeout"`
+	ExpectedTailnet   string                `toml:"expected_tailnet"`
+	ExpectedHostname  string                `toml:"expected_hostname"`
+	ExpectedTags      []string              `toml:"expected_tags"`
+	Parent            TailscaleParentConfig `toml:"parent"`
 }
 
 type TailscaleParentConfig struct {
@@ -730,10 +732,12 @@ func Default() Config {
 		},
 		DurableAgents: DurableAgentsConfig{},
 		Tailscale: TailscaleConfig{
-			Enabled:        false,
-			Backend:        "cli",
-			CLIPath:        "tailscale",
-			CommandTimeout: "5s",
+			Enabled:           false,
+			Backend:           "cli",
+			CLIPath:           "tailscale",
+			SSHPath:           "ssh",
+			CommandTimeout:    "5s",
+			SSHCommandTimeout: "15m",
 			Parent: TailscaleParentConfig{
 				Enabled:    false,
 				Hostname:   "aphelion",

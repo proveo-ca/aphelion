@@ -67,6 +67,7 @@ func newDurableAgentWakeRuntimeForCommand(cfg *config.Config) (durableAgentWakeR
 	tools := tool.NewRegistryWithSandbox(cfg.Agent.ExecRoot, time.Duration(cfg.Agent.ToolTimeout)*time.Second, sandboxResolver).
 		WithUserAgent(config.EffectiveUserAgent(cfg, tool.DefaultNativeFetchUserAgent)).
 		WithSessionStore(store).
+		WithRemoteHostSSH(cfg.Tailscale.SSHPath, remoteHostSSHTimeoutFromConfig(cfg)).
 		WithDurableAgentPrincipalFallback().
 		WithDurableAgentBootstrapLLM(defaultDurableAgentBootstrapFromConfig(cfg))
 	if manifestDir := strings.TrimSpace(cfg.Tools.ExternalManifestDir); manifestDir != "" {

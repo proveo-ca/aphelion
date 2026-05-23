@@ -718,6 +718,9 @@ func validateTailscaleConfig(cfg *Config) error {
 	if strings.TrimSpace(cfg.Tailscale.CLIPath) == "" {
 		cfg.Tailscale.CLIPath = "tailscale"
 	}
+	if strings.TrimSpace(cfg.Tailscale.SSHPath) == "" {
+		cfg.Tailscale.SSHPath = "ssh"
+	}
 	if raw := strings.TrimSpace(cfg.Tailscale.CommandTimeout); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil {
@@ -728,6 +731,17 @@ func validateTailscaleConfig(cfg *Config) error {
 		}
 	} else {
 		cfg.Tailscale.CommandTimeout = "5s"
+	}
+	if raw := strings.TrimSpace(cfg.Tailscale.SSHCommandTimeout); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return fmt.Errorf("tailscale.ssh_command_timeout must be a valid duration: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("tailscale.ssh_command_timeout must be > 0")
+		}
+	} else {
+		cfg.Tailscale.SSHCommandTimeout = "15m"
 	}
 	cfg.Tailscale.ExpectedTailnet = strings.TrimSpace(cfg.Tailscale.ExpectedTailnet)
 	cfg.Tailscale.ExpectedHostname = strings.TrimSpace(cfg.Tailscale.ExpectedHostname)
