@@ -732,6 +732,17 @@ func validateTailscaleConfig(cfg *Config) error {
 	} else {
 		cfg.Tailscale.CommandTimeout = "5s"
 	}
+	if raw := strings.TrimSpace(cfg.Tailscale.SSHCommandTimeout); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return fmt.Errorf("tailscale.ssh_command_timeout must be a valid duration: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("tailscale.ssh_command_timeout must be > 0")
+		}
+	} else {
+		cfg.Tailscale.SSHCommandTimeout = "15m"
+	}
 	cfg.Tailscale.ExpectedTailnet = strings.TrimSpace(cfg.Tailscale.ExpectedTailnet)
 	cfg.Tailscale.ExpectedHostname = strings.TrimSpace(cfg.Tailscale.ExpectedHostname)
 	cfg.Tailscale.ExpectedTags = normalizeStringList(cfg.Tailscale.ExpectedTags)

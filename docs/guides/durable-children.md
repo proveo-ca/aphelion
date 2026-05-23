@@ -169,8 +169,9 @@ that grant.
 
 V1 uses OpenSSH over the Tailnet, not Tailscale SSH policy mutation. Configure
 `tailscale.ssh_path` if the parent should use a non-default SSH binary; otherwise
-Aphelion uses `ssh`. `tailscale.command_timeout` is the remote command timeout
-unless the tool input supplies a smaller timeout. Aphelion does not auto-accept
+Aphelion uses `ssh`. `tailscale.ssh_command_timeout` is the remote SSH command
+timeout unless the tool input or grant supplies a smaller timeout; it defaults
+to 15 minutes so `codex_exec` has room to finish. Aphelion does not auto-accept
 host keys or disable SSH host-key checking. First contact must be set up
 intentionally by the operator, for example by connecting once from the parent
 host or managing `known_hosts` through normal SSH administration.

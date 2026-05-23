@@ -81,8 +81,7 @@ func (c *OpenSSHClient) RunOpenSSH(ctx context.Context, req OpenSSHRequest) (SSH
 	if req.Port > 0 {
 		argv = append(argv, "-p", strconv.Itoa(req.Port))
 	}
-	argv = append(argv, "--", target)
-	argv = append(argv, commandArgs...)
+	argv = append(argv, "--", target, openSSHRemoteCommand(commandArgs))
 
 	runCtx := ctx
 	cancel := func() {}
@@ -104,6 +103,21 @@ func (c *OpenSSHClient) RunOpenSSH(ctx context.Context, req OpenSSHRequest) (SSH
 		return result, fmt.Errorf("openssh %s failed: %w", target, err)
 	}
 	return result, nil
+}
+
+func openSSHRemoteCommand(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, openSSHShellQuote(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func openSSHShellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func SafeSSHHost(value string) bool {

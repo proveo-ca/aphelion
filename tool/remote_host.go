@@ -165,6 +165,7 @@ func (r *Registry) remoteHost(ctx context.Context, input json.RawMessage, p prin
 	if strings.TrimSpace(result.Target) == "" {
 		result.Target = in.User + "@" + in.Host
 	}
+	result.Output = strings.TrimSpace(result.Output)
 	if runErr != nil {
 		reason := remoteHostRunError(result, runErr)
 		_ = r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "failed", reason)

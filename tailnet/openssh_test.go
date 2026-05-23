@@ -32,7 +32,7 @@ func TestOpenSSHClientRunsCommandWithPortAndStdin(t *testing.T) {
 	if runner.name != "ssh-test" {
 		t.Fatalf("runner name = %q, want ssh-test", runner.name)
 	}
-	wantArgs := []string{"-p", "2222", "--", "alice@mac-mini.example.ts.net", "bash", "-lc", "cat >/tmp/in"}
+	wantArgs := []string{"-p", "2222", "--", "alice@mac-mini.example.ts.net", "'bash' '-lc' 'cat >/tmp/in'"}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("runner args = %#v, want %#v", runner.args, wantArgs)
 	}
@@ -41,6 +41,25 @@ func TestOpenSSHClientRunsCommandWithPortAndStdin(t *testing.T) {
 	}
 	if result.Target != "alice@mac-mini.example.ts.net" || result.Output != "ok" || result.ExitCode != 0 {
 		t.Fatalf("result = %#v, want target/output/exit", result)
+	}
+}
+
+func TestOpenSSHClientQuotesRemoteCommandAsSingleSSHArgument(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeSSHCommandRunner{}
+	client := NewOpenSSHClient(OpenSSHOptions{Runner: runner})
+	_, err := client.RunOpenSSH(context.Background(), OpenSSHRequest{
+		Host: "child",
+		User: "alice",
+		Args: []string{"bash", "-lc", "cd '/Users/alice/Code/app' && git status --short"},
+	})
+	if err != nil {
+		t.Fatalf("RunOpenSSH() err = %v", err)
+	}
+	wantArgs := []string{"--", "alice@child", "'bash' '-lc' 'cd '\"'\"'/Users/alice/Code/app'\"'\"' && git status --short'"}
+	if !reflect.DeepEqual(runner.args, wantArgs) {
+		t.Fatalf("runner args = %#v, want %#v", runner.args, wantArgs)
 	}
 }
 
