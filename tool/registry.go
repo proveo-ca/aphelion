@@ -42,6 +42,8 @@ type Registry struct {
 	externalManifests               []ExternalToolManifest
 	externalExecutor                ExternalToolExecutor
 	codexImageGenerationProvider    agent.Provider
+	webSearchOptions                WebSearchOptions
+	webSearchProviders              []WebSearchProvider
 	remoteHostRunner                tailnet.OpenSSHRunner
 	durableAgentPrincipalFallback   bool
 	capabilityGrantObserver         func(context.Context, session.SessionKey, session.CapabilityGrant)
@@ -54,6 +56,7 @@ func NewRegistry(workspace string, timeout time.Duration) *Registry {
 		maxOutputBytes:       defaultMaxOutputBytes,
 		nativeFetchUserAgent: DefaultNativeFetchUserAgent,
 		externalExecutor:     defaultExternalToolExecutor{},
+		webSearchOptions:     NormalizeWebSearchOptions(WebSearchOptions{}),
 	}
 }
 

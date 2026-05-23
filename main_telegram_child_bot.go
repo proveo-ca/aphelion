@@ -203,6 +203,7 @@ func newTelegramChildBotRuntime(cfg *config.Config, store *session.SQLiteStore, 
 		WithSessionStore(store).
 		WithRemoteHostSSH(cfg.Tailscale.SSHPath, remoteHostSSHTimeoutFromConfig(cfg)).
 		WithDurableAgentPrincipalFallback().
+		WithWebSearchOptions(tool.WebSearchOptionsFromConfig(cfg.Tools.WebSearch)).
 		WithDurableAgentBootstrapLLM(defaultDurableAgentBootstrapFromConfig(cfg))
 	if manifestDir := strings.TrimSpace(cfg.Tools.ExternalManifestDir); manifestDir != "" {
 		if _, err := tools.WithExternalToolManifestDir(manifestDir); err != nil {
