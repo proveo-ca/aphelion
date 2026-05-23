@@ -1,0 +1,89 @@
+//go:build linux
+
+package agent
+
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+type contextCaptureProvider struct {
+	calls    int
+	messages []Message
+}
+
+func (p *contextCaptureProvider) Complete(_ context.Context, messages []Message, _ []ToolDef) (*Response, error) {
+	p.calls++
+	p.messages = append([]Message(nil), messages...)
+	return &Response{Content: "done"}, nil
+}
+
+func TestRunTurnCompactsToolResultsBeforeProviderCall(t *testing.T) {
+	originalTool := strings.Repeat("a", 12000)
+	provider := &contextCaptureProvider{}
+	observer := &recordingTurnObserver{}
+	messages := []Message{
+		{Role: "user", Content: "inspect this"},
+		{Role: "tool", Content: originalTool},
+		{Role: "user", Content: "continue"},
+	}
+
+	result, history, err := RunTurn(context.Background(), provider, nil, nil, &CompleteOptions{
+		Observer: observer,
+		ContextBudget: &ContextBudget{
+			ContextWindow: 4000,
+			MaxRatio:      0.10,
+			HardRatio:     2.0,
+		},
+	}, messages)
+	if err != nil {
+		t.Fatalf("RunTurn() err = %v", err)
+	}
+	if result.Text != "done" {
+		t.Fatalf("text = %q, want done", result.Text)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.calls)
+	}
+	if got := provider.messages[1].Content; !strings.Contains(got, "tool output compacted for provider context") || len(got) >= len(originalTool) {
+		t.Fatalf("provider tool content was not compacted: len=%d", len(got))
+	}
+	if history[1].Content != originalTool {
+		t.Fatal("durable turn history was compacted; want original tool output preserved")
+	}
+	if len(observer.modelStarts) != 1 || !observer.modelStarts[0].ContextPreflightCompacted {
+		t.Fatalf("model start = %#v, want context compaction evidence", observer.modelStarts)
+	}
+	if observer.modelStarts[0].ContextPreflightOriginalTokens <= observer.modelStarts[0].ContextPreflightCompactedTokens {
+		t.Fatalf("preflight tokens = %#v, want compacted token estimate smaller", observer.modelStarts[0])
+	}
+}
+
+func TestRunTurnBlocksRequestsAboveHardContextBudget(t *testing.T) {
+	provider := &contextCaptureProvider{}
+	messages := []Message{
+		{Role: "user", Content: "inspect this"},
+		{Role: "tool", Content: strings.Repeat("a", 12000)},
+	}
+
+	result, history, err := RunTurn(context.Background(), provider, nil, nil, &CompleteOptions{
+		ContextBudget: &ContextBudget{
+			ContextWindow: 100,
+			MaxRatio:      0.10,
+			HardRatio:     0.20,
+		},
+	}, messages)
+	if err != nil {
+		t.Fatalf("RunTurn() err = %v", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", provider.calls)
+	}
+	if !strings.Contains(result.ProviderFailure, "context_budget_exceeded") {
+		t.Fatalf("ProviderFailure = %q, want context budget failure", result.ProviderFailure)
+	}
+	if len(history) != len(messages) || history[1].Content != messages[1].Content {
+		t.Fatalf("history changed on local budget failure: %#v", history)
+	}
+}

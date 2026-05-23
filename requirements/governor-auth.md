@@ -186,6 +186,7 @@ model = "gpt-5.5"
 store_responses = true            # Auto-falls back to store=false when the Codex endpoint rejects stored responses.
 max_continuations = 3
 transport_retries = 1
+response_header_timeout = "90s"
 ```
 
 `auth_source = "auto"` means:

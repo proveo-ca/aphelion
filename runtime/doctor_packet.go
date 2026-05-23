@@ -130,6 +130,7 @@ func (r *Runtime) writeDoctorRuntimeConfig(b *strings.Builder, exec pipeline.Tur
 	writeDoctorKV(b, "identity_face_name_effective", r.faceName())
 	writeDoctorKV(b, "codex_context_window", strconv.Itoa(r.cfg.Governor.Codex.ContextWindow))
 	writeDoctorKV(b, "codex_transport_retries", strconv.Itoa(r.cfg.Governor.Codex.TransportRetries))
+	writeDoctorKV(b, "codex_response_header_timeout", r.cfg.Governor.Codex.ResponseHeaderTimeout)
 	workStatus := WorkExecutorStatus{}
 	if r.workExecutor != nil {
 		workStatus = r.workExecutor.Status()

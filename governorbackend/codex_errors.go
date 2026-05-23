@@ -319,7 +319,20 @@ func redactError(err error, secret string) error {
 	if secret != "" {
 		msg = strings.ReplaceAll(msg, secret, "[REDACTED]")
 	}
-	return errors.New(msg)
+	return redactedError{message: msg, cause: err}
+}
+
+type redactedError struct {
+	message string
+	cause   error
+}
+
+func (e redactedError) Error() string {
+	return e.message
+}
+
+func (e redactedError) Unwrap() error {
+	return e.cause
 }
 
 func refreshTokenForRedaction(c *Codex) string {

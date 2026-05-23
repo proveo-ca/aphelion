@@ -11,7 +11,7 @@ import (
 func TestNewCodexHTTPClientDoesNotUseEndToEndTimeout(t *testing.T) {
 	t.Parallel()
 
-	client := newCodexHTTPClient()
+	client := newCodexHTTPClient(90 * time.Second)
 	if client == nil {
 		t.Fatal("newCodexHTTPClient() = nil")
 	}
@@ -22,7 +22,7 @@ func TestNewCodexHTTPClientDoesNotUseEndToEndTimeout(t *testing.T) {
 	if !ok {
 		t.Fatalf("client.Transport = %T, want *http.Transport", client.Transport)
 	}
-	if transport.ResponseHeaderTimeout != 30*time.Second {
-		t.Fatalf("ResponseHeaderTimeout = %v, want 30s", transport.ResponseHeaderTimeout)
+	if transport.ResponseHeaderTimeout != 90*time.Second {
+		t.Fatalf("ResponseHeaderTimeout = %v, want 90s", transport.ResponseHeaderTimeout)
 	}
 }

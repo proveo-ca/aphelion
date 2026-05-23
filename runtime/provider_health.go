@@ -45,6 +45,7 @@ func providerHealthFromExecutionEvents(events []session.ExecutionEvent, now time
 				health.LastFailureModel = providerHealthPayloadString(payload, "model")
 				health.LastFailureError = trimError(firstNonEmpty(providerHealthPayloadString(payload, "error"), providerHealthPayloadString(payload, "reason")))
 				health.LastFailureReason = firstNonEmpty(
+					providerHealthPayloadString(payload, "failure_kind"),
 					providerFailureOperatorReasonText(health.LastFailureError),
 					providerHealthPayloadString(payload, "reason"),
 					"provider_failure",

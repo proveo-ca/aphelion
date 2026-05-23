@@ -9,12 +9,29 @@ import (
 	"github.com/idolum-ai/aphelion/agent"
 	"github.com/idolum-ai/aphelion/governorauth"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+type timeoutTransportError struct {
+	message string
+}
+
+func (e timeoutTransportError) Error() string {
+	return e.message
+}
+
+func (e timeoutTransportError) Timeout() bool {
+	return true
+}
+
+func (e timeoutTransportError) Temporary() bool {
+	return true
+}
 
 func TestCodexCompleteStatusErrorRedactsSecretsInBody(t *testing.T) {
 	t.Parallel()
@@ -44,6 +61,70 @@ func TestCodexCompleteStatusErrorRedactsSecretsInBody(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "[REDACTED]") {
 		t.Fatalf("error = %v, want redacted marker", err)
+	}
+}
+
+func TestCodexRedactedTransportErrorPreservesRetryableCause(t *testing.T) {
+	t.Parallel()
+
+	secret := "secret-token"
+	cause := timeoutTransportError{message: "Post https://example.invalid: " + secret + " http2: timeout awaiting response headers"}
+	err := redactError(cause, secret)
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error = %v, secret leaked", err)
+	}
+	var netErr net.Error
+	if !errors.As(err, &netErr) {
+		t.Fatalf("errors.As(redacted, net.Error) = false, want preserved cause")
+	}
+	if !isRetryableCodexTransportError(err) {
+		t.Fatalf("isRetryableCodexTransportError(%v) = false, want true", err)
+	}
+}
+
+func TestCodexCompleteRetriesResponseHeaderTimeout(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	client, err := NewCodex(CodexOptions{
+		BaseURL:          "https://chatgpt.com/backend-api",
+		AccessToken:      "secret-token",
+		AccountID:        "acct-123",
+		TransportRetries: 2,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			calls++
+			if calls < 3 {
+				return nil, timeoutTransportError{message: "http2: timeout awaiting response headers"}
+			}
+			rec := httptest.NewRecorder()
+			writeSSE(t, rec,
+				sseEvent("response.output_text.delta", map[string]any{
+					"type":  "response.output_text.delta",
+					"delta": "recovered",
+				}),
+				sseEvent("response.completed", map[string]any{
+					"type": "response.completed",
+					"response": map[string]any{
+						"id": "resp1",
+					},
+				}),
+			)
+			return rec.Result(), nil
+		})},
+	})
+	if err != nil {
+		t.Fatalf("NewCodex() err = %v", err)
+	}
+
+	resp, err := client.Complete(context.Background(), []agent.Message{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Complete() err = %v", err)
+	}
+	if resp.Content != "recovered" {
+		t.Fatalf("content = %q, want recovered", resp.Content)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
 	}
 }
 

@@ -156,15 +156,16 @@ type GovernorConfig struct {
 }
 
 type GovernorCodexConfig struct {
-	AuthSource       string `toml:"auth_source"`
-	AuthPath         string `toml:"auth_path"`
-	CodexHome        string `toml:"codex_home"`
-	BaseURL          string `toml:"base_url"`
-	Model            string `toml:"model"`
-	ContextWindow    int    `toml:"context_window"`
-	StoreResponses   bool   `toml:"store_responses"`
-	MaxContinuations int    `toml:"max_continuations"`
-	TransportRetries int    `toml:"transport_retries"`
+	AuthSource            string `toml:"auth_source"`
+	AuthPath              string `toml:"auth_path"`
+	CodexHome             string `toml:"codex_home"`
+	BaseURL               string `toml:"base_url"`
+	Model                 string `toml:"model"`
+	ContextWindow         int    `toml:"context_window"`
+	StoreResponses        bool   `toml:"store_responses"`
+	MaxContinuations      int    `toml:"max_continuations"`
+	TransportRetries      int    `toml:"transport_retries"`
+	ResponseHeaderTimeout string `toml:"response_header_timeout"`
 }
 
 type BrokerageConfig struct {
@@ -544,13 +545,14 @@ func Default() Config {
 			Backend:        "auto",
 			NativeProvider: "",
 			Codex: GovernorCodexConfig{
-				AuthSource:       "auto",
-				BaseURL:          "https://chatgpt.com/backend-api",
-				Model:            "gpt-5.5",
-				ContextWindow:    250000,
-				StoreResponses:   true,
-				MaxContinuations: 3,
-				TransportRetries: 3,
+				AuthSource:            "auto",
+				BaseURL:               "https://chatgpt.com/backend-api",
+				Model:                 "gpt-5.5",
+				ContextWindow:         250000,
+				StoreResponses:        true,
+				MaxContinuations:      3,
+				TransportRetries:      3,
+				ResponseHeaderTimeout: "90s",
 			},
 			Brokerage: BrokerageConfig{
 				MinRounds:              1,

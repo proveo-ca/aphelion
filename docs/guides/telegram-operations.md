@@ -34,11 +34,13 @@ durable-agent state, or a specific chat.
 
 System health includes provider pressure as a typed projection. A
 `provider_health` line summarizes recent provider failures, retries, failovers,
-and successes across the last few hours, with the latest provider/model/reason
-when a failure is still the newest evidence. Treat `degraded` as an inference
-surface issue before assuming the turn logic or Telegram transport is broken;
-`residual_risk` means a later success exists but recent provider pressure is
-still worth knowing about.
+and successes across the last few hours, with the latest provider/model/failure
+kind when a failure is still the newest evidence. Transport timeouts, context
+window pressure, request-buffer limits, and continuation rejections are grouped
+as stable failure kinds instead of raw provider strings. Treat `degraded` as an
+inference surface issue before assuming the turn logic or Telegram transport is
+broken; `residual_risk` means a later success exists but recent provider
+pressure is still worth knowing about.
 
 Aphelion advances Telegram offsets only after an update is durably accepted,
 durably handled, durably queued for a turn, terminally skipped/completed, or

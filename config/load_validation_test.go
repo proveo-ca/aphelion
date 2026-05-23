@@ -86,6 +86,42 @@ max_override_duration = "25h"
 	}
 }
 
+func TestLoadRejectsInvalidCodexResponseHeaderTimeout(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	raw := `
+[telegram]
+bot_token = "tg-test"
+
+[principals.telegram]
+admin_user_ids = [123]
+
+[providers.anthropic]
+api_key = "sk-ant-test"
+
+[governor.codex]
+response_header_timeout = "0s"
+
+[agent]
+prompt_root = "./agent"
+exec_root = "./workspace"
+shared_memory_root = "./agent"
+`
+	if err := os.WriteFile(configPath, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load() err = nil, want response header timeout validation error")
+	}
+	if !strings.Contains(err.Error(), "governor.codex.response_header_timeout must be > 0") {
+		t.Fatalf("Load() err = %v, want response header timeout validation", err)
+	}
+}
+
 func TestLoadRejectsMissingSecrets(t *testing.T) {
 	t.Parallel()
 

@@ -4,7 +4,6 @@ package provider
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/idolum-ai/aphelion/agent"
@@ -68,7 +67,7 @@ func renderPartialProviderRecoveryNote(provider string, responseID string, reaso
 	}
 	if text := strings.TrimSpace(partial.Content); text != "" {
 		b.WriteString("\npartial_text:\n")
-		b.WriteString(compactProviderFallbackText(text, providerFallbackRecentToolChars))
+		b.WriteString(agent.CompactProviderContextText(text, providerFallbackRecentToolChars))
 	}
 	if len(partial.ToolCalls) > 0 {
 		b.WriteString("\npartial_tool_calls:")
@@ -81,7 +80,7 @@ func renderPartialProviderRecoveryNote(provider string, responseID string, reaso
 			}
 			if input := strings.TrimSpace(string(call.Input)); input != "" {
 				b.WriteString(" input=")
-				b.WriteString(compactProviderFallbackText(input, providerFallbackOlderToolChars))
+				b.WriteString(agent.CompactProviderContextText(input, providerFallbackOlderToolChars))
 			}
 		}
 	}
@@ -91,43 +90,8 @@ func renderPartialProviderRecoveryNote(provider string, responseID string, reaso
 const (
 	providerFallbackRecentToolChars = 4000
 	providerFallbackOlderToolChars  = 800
-	providerFallbackTotalToolChars  = 60000
 )
 
 func compactToolResultMessagesForProviderFallback(messages []agent.Message) []agent.Message {
-	out := append([]agent.Message(nil), messages...)
-	totalToolChars := 0
-	for i := len(out) - 1; i >= 0; i-- {
-		if !strings.EqualFold(strings.TrimSpace(out[i].Role), "tool") {
-			continue
-		}
-		limit := providerFallbackRecentToolChars
-		if totalToolChars >= providerFallbackTotalToolChars {
-			limit = providerFallbackOlderToolChars
-		}
-		out[i].Content = compactProviderFallbackText(out[i].Content, limit)
-		totalToolChars += len(out[i].Content)
-	}
-	return out
-}
-
-func compactProviderFallbackText(text string, limit int) string {
-	text = strings.TrimSpace(text)
-	if limit <= 0 || len(text) <= limit {
-		return text
-	}
-	head := limit * 2 / 3
-	tail := limit - head
-	if head < 1 {
-		head = 1
-	}
-	if tail < 1 {
-		tail = 1
-	}
-	if head+tail >= len(text) {
-		return text
-	}
-	return strings.TrimSpace(text[:head]) +
-		fmt.Sprintf("\n\n[tool output compacted for provider context: original_chars=%d omitted_chars=%d]\n\n", len(text), len(text)-head-tail) +
-		strings.TrimSpace(text[len(text)-tail:])
+	return agent.CompactToolResultMessagesForProviderContext(messages)
 }
