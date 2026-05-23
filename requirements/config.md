@@ -252,6 +252,7 @@ model = "gpt-5.5"
 store_responses = true          # Try Codex previous_response_id continuation; auto-fall back to local replay if unsupported.
 max_continuations = 3
 transport_retries = 1
+response_header_timeout = "90s"
 
 [face]
 backend = "provider"          # "provider" | "floor_fallback" (dedicated floor-to-user fallback serializer)

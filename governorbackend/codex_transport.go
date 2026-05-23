@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/governorauth"
 )
 
@@ -114,6 +115,9 @@ func isRetryableCodexTransportError(err error) bool {
 	if errors.As(err, &apiErr) {
 		return false
 	}
+	if core.ProviderFailureRetryable(core.ProviderFailureKind(err)) {
+		return true
+	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
@@ -130,7 +134,9 @@ func isRetryableCodexTransportError(err error) bool {
 		strings.HasSuffix(msg, "eof") ||
 		strings.Contains(msg, "connection reset") ||
 		strings.Contains(msg, "broken pipe") ||
-		strings.Contains(msg, "stream closed")
+		strings.Contains(msg, "stream closed") ||
+		strings.Contains(msg, "timeout awaiting response headers") ||
+		strings.Contains(msg, "client.timeout exceeded while awaiting headers")
 }
 
 func (c *Codex) currentCredentials() (string, string) {

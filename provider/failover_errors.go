@@ -61,6 +61,9 @@ type statusCoder interface {
 }
 
 func isRetryableProviderError(err error) bool {
+	if core.ProviderFailureRetryable(core.ProviderFailureKind(err)) {
+		return true
+	}
 	if isProviderBufferLimitError(err) {
 		return false
 	}
@@ -87,6 +90,9 @@ func isRetryableProviderError(err error) bool {
 }
 
 func shouldFailoverOnError(err error) bool {
+	if core.ProviderFailureFailoverEligible(core.ProviderFailureKind(err)) {
+		return true
+	}
 	if isProviderBufferLimitError(err) {
 		return true
 	}

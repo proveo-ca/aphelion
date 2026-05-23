@@ -378,6 +378,11 @@ Rules:
 - fail over only on retryable exhaustion or retryable transport failure
 - do not cascade through every provider on deterministic request/config/auth errors
 - successful failover must be visible to logs and machine state even if the user-visible turn completes normally
+- before each provider call, estimate the prompt/tool payload and compact
+  tool-result history when the request exceeds the configured session context
+  ratio; if the compacted request still exceeds the hard budget, fail locally
+  with typed `context_budget_exceeded` evidence instead of sending an oversized
+  request upstream
 
 ### Face ladder
 

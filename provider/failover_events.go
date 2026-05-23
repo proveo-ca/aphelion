@@ -13,13 +13,17 @@ func recordProviderRetryEvent(events *[]core.ProviderEvent, provider string, att
 	if events == nil {
 		return
 	}
+	kind := core.ProviderFailureKind(err)
 	*events = append(*events, core.ProviderEvent{
-		EventType:  core.ExecutionEventProviderAttemptRetried,
-		ObservedAt: time.Now().UTC(),
-		Provider:   strings.TrimSpace(provider),
-		Attempt:    attempt,
-		MaxRetries: failoverMaxRetries,
-		Error:      trimProviderEventError(err),
+		EventType:        core.ExecutionEventProviderAttemptRetried,
+		ObservedAt:       time.Now().UTC(),
+		Provider:         strings.TrimSpace(provider),
+		Attempt:          attempt,
+		MaxRetries:       failoverMaxRetries,
+		Error:            trimProviderEventError(err),
+		FailureKind:      kind,
+		Retryable:        core.ProviderFailureRetryable(kind),
+		FailoverEligible: core.ProviderFailureFailoverEligible(kind),
 	})
 }
 
@@ -27,11 +31,15 @@ func recordProviderFailedEvent(events *[]core.ProviderEvent, provider string, er
 	if events == nil {
 		return
 	}
+	kind := core.ProviderFailureKind(err)
 	*events = append(*events, core.ProviderEvent{
-		EventType:  core.ExecutionEventProviderAttemptFailed,
-		ObservedAt: time.Now().UTC(),
-		Provider:   strings.TrimSpace(provider),
-		Error:      trimProviderEventError(err),
+		EventType:        core.ExecutionEventProviderAttemptFailed,
+		ObservedAt:       time.Now().UTC(),
+		Provider:         strings.TrimSpace(provider),
+		Error:            trimProviderEventError(err),
+		FailureKind:      kind,
+		Retryable:        core.ProviderFailureRetryable(kind),
+		FailoverEligible: core.ProviderFailureFailoverEligible(kind),
 	})
 }
 
@@ -51,13 +59,17 @@ func recordProviderPartialEvent(events *[]core.ProviderEvent, provider string, e
 	if !ok {
 		return
 	}
+	kind := core.ProviderFailureKind(err)
 	event := core.ProviderEvent{
-		EventType:  core.ExecutionEventProviderPartial,
-		ObservedAt: time.Now().UTC(),
-		Provider:   strings.TrimSpace(provider),
-		Reason:     reason,
-		ResponseID: responseID,
-		Error:      trimProviderEventError(err),
+		EventType:        core.ExecutionEventProviderPartial,
+		ObservedAt:       time.Now().UTC(),
+		Provider:         strings.TrimSpace(provider),
+		Reason:           reason,
+		ResponseID:       responseID,
+		Error:            trimProviderEventError(err),
+		FailureKind:      kind,
+		Retryable:        core.ProviderFailureRetryable(kind),
+		FailoverEligible: core.ProviderFailureFailoverEligible(kind),
 	}
 	if partial != nil {
 		event.PartialContentChars = len(strings.TrimSpace(partial.Content))
@@ -70,12 +82,16 @@ func recordProviderFailoverEvent(events *[]core.ProviderEvent, from string, to s
 	if events == nil || strings.TrimSpace(to) == "" {
 		return
 	}
+	kind := core.ProviderFailureKind(err)
 	*events = append(*events, core.ProviderEvent{
-		EventType:    core.ExecutionEventProviderFailoverEngaged,
-		ObservedAt:   time.Now().UTC(),
-		FromProvider: strings.TrimSpace(from),
-		ToProvider:   strings.TrimSpace(to),
-		Error:        trimProviderEventError(err),
+		EventType:        core.ExecutionEventProviderFailoverEngaged,
+		ObservedAt:       time.Now().UTC(),
+		FromProvider:     strings.TrimSpace(from),
+		ToProvider:       strings.TrimSpace(to),
+		Error:            trimProviderEventError(err),
+		FailureKind:      kind,
+		Retryable:        core.ProviderFailureRetryable(kind),
+		FailoverEligible: core.ProviderFailureFailoverEligible(kind),
 	})
 }
 

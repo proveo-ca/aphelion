@@ -53,15 +53,25 @@ type TurnObserver interface {
 }
 
 type ModelRequestEvent struct {
-	Attempt       int
-	HistoryCount  int
-	ToolCount     int
-	Duration      time.Duration
-	Error         string
-	Retryable     bool
-	ToolCallCount int
-	OutputChars   int
-	TokenUsage    core.TokenUsage
+	Attempt                            int
+	HistoryCount                       int
+	ToolCount                          int
+	Duration                           time.Duration
+	Error                              string
+	FailureKind                        string
+	Retryable                          bool
+	ToolCallCount                      int
+	OutputChars                        int
+	TokenUsage                         core.TokenUsage
+	EstimatedInputTokens               int
+	ContextWindow                      int
+	ContextMaxTokens                   int
+	ContextHardTokens                  int
+	ContextPreflightCompacted          bool
+	ContextPreflightOriginalTokens     int
+	ContextPreflightCompactedTokens    int
+	ContextPreflightOriginalToolChars  int
+	ContextPreflightCompactedToolChars int
 }
 
 type ToolBatchEvent struct {
@@ -139,11 +149,18 @@ type CompleteOptions struct {
 	Verbosity        Verbosity
 	ProviderFailover *ProviderFailoverState
 	Observer         TurnObserver
+	ContextBudget    *ContextBudget
 }
 
 type ProviderFailoverState struct {
 	PreferredProvider string
 	Reason            string
+}
+
+type ContextBudget struct {
+	ContextWindow int
+	MaxRatio      float64
+	HardRatio     float64
 }
 
 type ReasoningConfig struct {
@@ -439,17 +456,20 @@ func completeWithRetry(
 ) (*Response, error) {
 	observer := turnObserver(opts)
 	if managed, ok := provider.(ManagedProvider); ok {
-		event := ModelRequestEvent{Attempt: 1, HistoryCount: len(messages), ToolCount: len(tools)}
+		requestMessages, preflight, preflightErr := prepareProviderMessages(messages, tools, opts)
+		event := modelRequestEvent(1, len(messages), len(tools), preflight)
 		if observer != nil {
 			observer.ModelRequestStarted(ctx, event)
 		}
 		started := time.Now()
 		var resp *Response
 		var err error
-		if opts == nil {
-			resp, err = managed.CompleteManaged(ctx, messages, tools, CompleteOptions{})
+		if preflightErr != nil {
+			err = preflightErr
+		} else if opts == nil {
+			resp, err = managed.CompleteManaged(ctx, requestMessages, tools, CompleteOptions{})
 		} else {
-			resp, err = managed.CompleteManaged(ctx, messages, tools, *opts)
+			resp, err = managed.CompleteManaged(ctx, requestMessages, tools, *opts)
 		}
 		finishModelRequest(ctx, observer, event, started, resp, err)
 		return resp, err
@@ -460,12 +480,17 @@ func completeWithRetry(
 	retries := 0
 
 	for {
-		event := ModelRequestEvent{Attempt: attempt, HistoryCount: len(messages), ToolCount: len(tools)}
+		requestMessages, preflight, preflightErr := prepareProviderMessages(messages, tools, opts)
+		event := modelRequestEvent(attempt, len(messages), len(tools), preflight)
 		if observer != nil {
 			observer.ModelRequestStarted(ctx, event)
 		}
 		started := time.Now()
-		resp, err := completeOnce(ctx, provider, messages, tools, opts)
+		var resp *Response
+		err := preflightErr
+		if err == nil {
+			resp, err = completeOnce(ctx, provider, requestMessages, tools, opts)
+		}
 		finishModelRequest(ctx, observer, event, started, resp, err)
 		if err == nil {
 			return resp, nil
@@ -490,6 +515,23 @@ func completeWithRetry(
 	}
 }
 
+func modelRequestEvent(attempt int, historyCount int, toolCount int, preflight contextPreflight) ModelRequestEvent {
+	return ModelRequestEvent{
+		Attempt:                            attempt,
+		HistoryCount:                       historyCount,
+		ToolCount:                          toolCount,
+		EstimatedInputTokens:               preflight.EstimatedTokens,
+		ContextWindow:                      preflight.ContextWindow,
+		ContextMaxTokens:                   preflight.MaxTokens,
+		ContextHardTokens:                  preflight.HardTokens,
+		ContextPreflightCompacted:          preflight.Compacted,
+		ContextPreflightOriginalTokens:     preflight.OriginalTokens,
+		ContextPreflightCompactedTokens:    preflight.CompactedTokens,
+		ContextPreflightOriginalToolChars:  preflight.OriginalToolChars,
+		ContextPreflightCompactedToolChars: preflight.CompactedToolChars,
+	}
+}
+
 func turnObserver(opts *CompleteOptions) TurnObserver {
 	if opts == nil {
 		return nil
@@ -509,6 +551,7 @@ func finishModelRequest(ctx context.Context, observer TurnObserver, event ModelR
 	}
 	if err != nil {
 		event.Error = trimProviderFailure(err)
+		event.FailureKind = core.ProviderFailureKind(err)
 		event.Retryable = isRetryableProviderError(err)
 	}
 	observer.ModelRequestFinished(ctx, event)
@@ -553,6 +596,9 @@ func providerEventsFromError(err error) []core.ProviderEvent {
 }
 
 func isRetryableProviderError(err error) bool {
+	if core.ProviderFailureRetryable(core.ProviderFailureKind(err)) {
+		return true
+	}
 	var coded providerFailureCoder
 	if errors.As(err, &coded) {
 		switch strings.ToLower(strings.TrimSpace(coded.ProviderFailureCode())) {

@@ -47,6 +47,11 @@ func (r *Runtime) recordProviderAttemptEvents(key session.SessionKey, exec pipel
 		if value := strings.TrimSpace(event.Error); value != "" {
 			payload["error"] = trimError(value)
 		}
+		if value := strings.TrimSpace(event.FailureKind); value != "" {
+			payload["failure_kind"] = value
+		}
+		payload["retryable"] = event.Retryable
+		payload["failover_eligible"] = event.FailoverEligible
 		if value := strings.TrimSpace(event.Reason); value != "" {
 			payload["reason"] = value
 		}

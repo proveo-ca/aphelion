@@ -109,6 +109,9 @@ external_manifest_dir = "./external-tools"
 	if !cfg.Governor.Codex.StoreResponses {
 		t.Fatalf("governor.codex.store_responses = false, want true by default")
 	}
+	if cfg.Governor.Codex.ResponseHeaderTimeout != "90s" {
+		t.Fatalf("governor.codex.response_header_timeout = %q, want 90s", cfg.Governor.Codex.ResponseHeaderTimeout)
+	}
 	if cfg.Governor.Brokerage.MinRounds != 1 || cfg.Governor.Brokerage.MaxRounds != 4 || cfg.Governor.Brokerage.AbsoluteMaxRounds != 6 || cfg.Governor.Brokerage.MaxElapsed != "20s" || cfg.Governor.Brokerage.StableContractRounds != 2 {
 		t.Fatalf("governor.brokerage defaults = %#v, want 1/4/6/20s/stable=2", cfg.Governor.Brokerage)
 	}
@@ -412,6 +415,7 @@ native_provider = "anthropic"
 	store_responses = false
 	max_continuations = 5
 	transport_retries = 2
+	response_header_timeout = "2m"
 
 	[governor.brokerage]
 	min_rounds = 2
@@ -667,6 +671,9 @@ elevenlabs_voice_id = "voice-123"
 	}
 	if cfg.Governor.Codex.TransportRetries != 2 {
 		t.Fatalf("governor.codex.transport_retries = %d, want 2", cfg.Governor.Codex.TransportRetries)
+	}
+	if cfg.Governor.Codex.ResponseHeaderTimeout != "2m" {
+		t.Fatalf("governor.codex.response_header_timeout = %q, want 2m", cfg.Governor.Codex.ResponseHeaderTimeout)
 	}
 	if cfg.Governor.Brokerage.MinRounds != 2 || cfg.Governor.Brokerage.MaxRounds != 5 || cfg.Governor.Brokerage.AbsoluteMaxRounds != 7 || cfg.Governor.Brokerage.MaxElapsed != "45s" || cfg.Governor.Brokerage.StableContractRounds != 3 {
 		t.Fatalf("governor.brokerage = %#v, want explicit convergence limits", cfg.Governor.Brokerage)

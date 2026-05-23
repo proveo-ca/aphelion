@@ -110,6 +110,16 @@ func validate(cfg *Config) error {
 	if cfg.Governor.Codex.TransportRetries < 0 {
 		return fmt.Errorf("governor.codex.transport_retries must be >= 0")
 	}
+	if strings.TrimSpace(cfg.Governor.Codex.ResponseHeaderTimeout) == "" {
+		return fmt.Errorf("governor.codex.response_header_timeout is required")
+	}
+	responseHeaderTimeout, err := time.ParseDuration(strings.TrimSpace(cfg.Governor.Codex.ResponseHeaderTimeout))
+	if err != nil {
+		return fmt.Errorf("governor.codex.response_header_timeout must be a valid duration: %w", err)
+	}
+	if responseHeaderTimeout <= 0 {
+		return fmt.Errorf("governor.codex.response_header_timeout must be > 0")
+	}
 	if cfg.Governor.Brokerage.MinRounds <= 0 {
 		return fmt.Errorf("governor.brokerage.min_rounds must be > 0")
 	}

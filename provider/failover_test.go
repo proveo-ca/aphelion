@@ -393,6 +393,43 @@ func TestFailoverChainRecordsRetryEvents(t *testing.T) {
 	}
 }
 
+func TestFailoverChainRetriesAndFallsBackOnResponseHeaderTimeout(t *testing.T) {
+	primary := &stubChainProvider{err: errors.New(`codex: request: Post "https://chatgpt.com/backend-api/codex/responses": http2: timeout awaiting response headers`)}
+	secondary := &stubChainProvider{reply: "fallback reply"}
+
+	chain, err := NewFailoverChain([]NamedProvider{
+		{Name: "codex", Provider: primary},
+		{Name: "native", Provider: secondary},
+	})
+	if err != nil {
+		t.Fatalf("NewFailoverChain() err = %v", err)
+	}
+
+	resp, err := chain.CompleteManaged(context.Background(), []agent.Message{{Role: "user", Content: "hi"}}, nil, agent.CompleteOptions{})
+	if err != nil {
+		t.Fatalf("CompleteManaged() err = %v", err)
+	}
+	if resp.Content != "fallback reply" {
+		t.Fatalf("content = %q, want fallback reply", resp.Content)
+	}
+	if !providerEventsContain(resp.ProviderEvents, core.ExecutionEventProviderAttemptRetried) {
+		t.Fatalf("provider events = %#v, want retry event", resp.ProviderEvents)
+	}
+	if !providerEventsContain(resp.ProviderEvents, core.ExecutionEventProviderFailoverEngaged) {
+		t.Fatalf("provider events = %#v, want failover event", resp.ProviderEvents)
+	}
+	var failed core.ProviderEvent
+	for _, event := range resp.ProviderEvents {
+		if event.EventType == core.ExecutionEventProviderAttemptFailed {
+			failed = event
+			break
+		}
+	}
+	if failed.FailureKind != core.ProviderFailureTransportTimeout || !failed.Retryable || !failed.FailoverEligible {
+		t.Fatalf("failed event = %#v, want typed retryable/failover timeout", failed)
+	}
+}
+
 func providerEventsContain(events []core.ProviderEvent, eventType string) bool {
 	for _, event := range events {
 		if event.EventType == eventType {

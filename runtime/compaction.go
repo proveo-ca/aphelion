@@ -270,3 +270,18 @@ func (r *Runtime) governorContextWindow() int {
 	}
 	return 200000
 }
+
+func (r *Runtime) providerContextBudget() *agent.ContextBudget {
+	if r == nil || r.cfg == nil {
+		return nil
+	}
+	contextWindow := r.governorContextWindow()
+	if contextWindow <= 0 {
+		return nil
+	}
+	return &agent.ContextBudget{
+		ContextWindow: contextWindow,
+		MaxRatio:      r.cfg.Sessions.MaxContextRatio,
+		HardRatio:     1.10,
+	}
+}

@@ -330,17 +330,22 @@ func (r *Runtime) executeTurnCoordinator(ctx context.Context, input turnCoordina
 		runOpts = &agent.CompleteOptions{}
 	}
 	runOpts.Observer = monitor
+	runOpts.ContextBudget = r.providerContextBudget()
 	turnResult, outHistory, runErr := agent.RunTurn(ctx, input.Exec.Provider, tools, &agent.Budget{
 		Max:     r.cfg.Agent.MaxIterations,
 		Caution: 0.7,
 		Warning: 0.9,
 	}, runOpts, turnInput)
 	if runErr != nil {
+		failureKind := core.ProviderFailureKind(runErr)
 		r.recordExecutionEvent(input.Key, core.ExecutionEventProviderAttemptFailed, "provider", "failed", map[string]any{
 			"backend":              strings.TrimSpace(input.Exec.Backend),
 			"provider":             strings.TrimSpace(input.Exec.ProviderName),
 			"model":                strings.TrimSpace(input.Exec.ModelName),
 			"error":                trimError(runErr.Error()),
+			"failure_kind":         failureKind,
+			"retryable":            core.ProviderFailureRetryable(failureKind),
+			"failover_eligible":    core.ProviderFailureFailoverEligible(failureKind),
 			"provider_duration_ms": durationMillis(time.Since(providerStarted)),
 		}, time.Now().UTC())
 		if !suppressTurnCoordinatorProviderOperationalAlert(input) {
@@ -354,11 +359,16 @@ func (r *Runtime) executeTurnCoordinator(ctx context.Context, input turnCoordina
 		r.warnProviderFailovers(ctx, input.Key, turnResult.ProviderEvents)
 	}
 	if turnResult != nil && strings.TrimSpace(turnResult.ProviderFailure) != "" {
+		providerFailure := strings.TrimSpace(turnResult.ProviderFailure)
+		failureKind := core.ProviderFailureKind(fmt.Errorf("%s", providerFailure))
 		r.recordExecutionEvent(input.Key, core.ExecutionEventProviderAttemptFailed, "provider", "failed", map[string]any{
 			"backend":              strings.TrimSpace(input.Exec.Backend),
 			"provider":             strings.TrimSpace(input.Exec.ProviderName),
 			"model":                strings.TrimSpace(input.Exec.ModelName),
-			"error":                trimError(turnResult.ProviderFailure),
+			"error":                trimError(providerFailure),
+			"failure_kind":         failureKind,
+			"retryable":            core.ProviderFailureRetryable(failureKind),
+			"failover_eligible":    core.ProviderFailureFailoverEligible(failureKind),
 			"provider_duration_ms": durationMillis(time.Since(providerStarted)),
 		}, time.Now().UTC())
 		if !suppressTurnCoordinatorProviderOperationalAlert(input) {

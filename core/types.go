@@ -115,6 +115,9 @@ type ProviderEvent struct {
 	Attempt             int
 	MaxRetries          int
 	Error               string
+	FailureKind         string
+	Retryable           bool
+	FailoverEligible    bool
 	Reason              string
 	ResponseID          string
 	PartialContentChars int

@@ -105,10 +105,15 @@ func (m *turnMonitor) ModelRequestStarted(ctx context.Context, event agent.Model
 		return
 	}
 	m.runtime.recordExecutionEvent(m.key, core.ExecutionEventModelRequestStarted, "model", "started", map[string]any{
-		"run_id":        m.runID,
-		"attempt":       event.Attempt,
-		"history_count": event.HistoryCount,
-		"tool_count":    event.ToolCount,
+		"run_id":                 m.runID,
+		"attempt":                event.Attempt,
+		"history_count":          event.HistoryCount,
+		"tool_count":             event.ToolCount,
+		"estimated_input_tokens": event.EstimatedInputTokens,
+		"context_window":         event.ContextWindow,
+		"context_max_tokens":     event.ContextMaxTokens,
+		"context_hard_tokens":    event.ContextHardTokens,
+		"context_compacted":      event.ContextPreflightCompacted,
 	}, time.Now().UTC())
 }
 
@@ -131,12 +136,36 @@ func (m *turnMonitor) ModelRequestFinished(ctx context.Context, event agent.Mode
 		"output_chars":      event.OutputChars,
 		"model_duration_ms": durationMillis(event.Duration),
 	}
+	appendModelContextPreflightPayload(payload, event)
 	if strings.TrimSpace(event.Error) != "" {
 		payload["error"] = trimError(event.Error)
+		payload["failure_kind"] = event.FailureKind
 		payload["retryable"] = event.Retryable
 	}
 	appendTokenUsagePayload(payload, event.TokenUsage)
 	m.runtime.recordExecutionEvent(m.key, eventType, "model", status, payload, time.Now().UTC())
+}
+
+func appendModelContextPreflightPayload(payload map[string]any, event agent.ModelRequestEvent) {
+	if event.EstimatedInputTokens > 0 {
+		payload["estimated_input_tokens"] = event.EstimatedInputTokens
+	}
+	if event.ContextWindow > 0 {
+		payload["context_window"] = event.ContextWindow
+	}
+	if event.ContextMaxTokens > 0 {
+		payload["context_max_tokens"] = event.ContextMaxTokens
+	}
+	if event.ContextHardTokens > 0 {
+		payload["context_hard_tokens"] = event.ContextHardTokens
+	}
+	if event.ContextPreflightCompacted {
+		payload["context_compacted"] = true
+		payload["context_original_tokens"] = event.ContextPreflightOriginalTokens
+		payload["context_compacted_tokens"] = event.ContextPreflightCompactedTokens
+		payload["context_original_tool_chars"] = event.ContextPreflightOriginalToolChars
+		payload["context_compacted_tool_chars"] = event.ContextPreflightCompactedToolChars
+	}
 }
 
 func (m *turnMonitor) ToolBatchStarted(ctx context.Context, event agent.ToolBatchEvent) {

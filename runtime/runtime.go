@@ -132,13 +132,20 @@ func (r *Runtime) ConfigureVoice(cfg config.VoiceConfig, transcriber media.Trans
 
 var ErrPrincipalDenied = errors.New("principal is not admitted")
 
-func newCodexHTTPClient() *http.Client {
+func newCodexHTTPClient(responseHeaderTimeoutValues ...time.Duration) *http.Client {
 	transport, _ := http.DefaultTransport.(*http.Transport)
 	if transport == nil {
 		return &http.Client{}
 	}
+	responseHeaderTimeout := time.Duration(0)
+	if len(responseHeaderTimeoutValues) > 0 {
+		responseHeaderTimeout = responseHeaderTimeoutValues[0]
+	}
+	if responseHeaderTimeout <= 0 {
+		responseHeaderTimeout = 90 * time.Second
+	}
 	clone := transport.Clone()
-	clone.ResponseHeaderTimeout = 30 * time.Second
+	clone.ResponseHeaderTimeout = responseHeaderTimeout
 	clone.TLSHandshakeTimeout = 10 * time.Second
 	clone.ExpectContinueTimeout = time.Second
 	clone.DialContext = (&net.Dialer{
@@ -166,6 +173,10 @@ var newCodexProvider = func(bundle governorauth.Bundle, cfg *config.Config) (age
 			return governorauth.SaveCodexCLIAuth(authPath, tokens, refreshedAt)
 		}
 	}
+	responseHeaderTimeout, err := time.ParseDuration(strings.TrimSpace(cfg.Governor.Codex.ResponseHeaderTimeout))
+	if err != nil {
+		return nil, fmt.Errorf("parse governor.codex.response_header_timeout: %w", err)
+	}
 	return governorbackend.NewCodex(governorbackend.CodexOptions{
 		BaseURL:          bundle.BaseURL,
 		AccessToken:      bundle.AccessToken,
@@ -176,7 +187,7 @@ var newCodexProvider = func(bundle governorauth.Bundle, cfg *config.Config) (age
 		StoreResponses:   cfg.Governor.Codex.StoreResponses,
 		MaxContinuations: cfg.Governor.Codex.MaxContinuations,
 		TransportRetries: cfg.Governor.Codex.TransportRetries,
-		HTTPClient:       newCodexHTTPClient(),
+		HTTPClient:       newCodexHTTPClient(responseHeaderTimeout),
 		UserAgent:        config.EffectiveUserAgent(cfg, ""),
 		LoadTokens:       loadTokens,
 		SaveTokens:       saveTokens,
