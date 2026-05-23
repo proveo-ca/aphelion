@@ -718,6 +718,9 @@ func validateTailscaleConfig(cfg *Config) error {
 	if strings.TrimSpace(cfg.Tailscale.CLIPath) == "" {
 		cfg.Tailscale.CLIPath = "tailscale"
 	}
+	if strings.TrimSpace(cfg.Tailscale.SSHPath) == "" {
+		cfg.Tailscale.SSHPath = "ssh"
+	}
 	if raw := strings.TrimSpace(cfg.Tailscale.CommandTimeout); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil {

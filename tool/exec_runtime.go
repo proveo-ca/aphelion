@@ -116,6 +116,8 @@ func (r *Registry) executeWithScopeAndPrincipal(ctx context.Context, name string
 		return r.durableAgent(ctx, input, p, key, scope)
 	case codexImageGenerationToolName:
 		return r.codexImageGeneration(ctx, input, scope, p, key)
+	case remoteHostToolName:
+		return r.remoteHost(ctx, input, p, key)
 	default:
 		if manifest, ok := r.externalManifestByName(name); ok {
 			if r.externalExecutor != nil && r.externalExecutor.Supports(manifest) {

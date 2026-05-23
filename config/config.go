@@ -100,6 +100,7 @@ type TailscaleConfig struct {
 	Enabled          bool                  `toml:"enabled"`
 	Backend          string                `toml:"backend"`
 	CLIPath          string                `toml:"cli_path"`
+	SSHPath          string                `toml:"ssh_path"`
 	CommandTimeout   string                `toml:"command_timeout"`
 	ExpectedTailnet  string                `toml:"expected_tailnet"`
 	ExpectedHostname string                `toml:"expected_hostname"`
@@ -733,6 +734,7 @@ func Default() Config {
 			Enabled:        false,
 			Backend:        "cli",
 			CLIPath:        "tailscale",
+			SSHPath:        "ssh",
 			CommandTimeout: "5s",
 			Parent: TailscaleParentConfig{
 				Enabled:    false,

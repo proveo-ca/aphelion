@@ -27,6 +27,7 @@ max_pdf_bytes = "8MB"
 enabled = false
 backend = "cli"
 cli_path = "tailscale"
+ssh_path = "ssh"
 command_timeout = "5s"
 expected_tailnet = ""
 expected_hostname = ""

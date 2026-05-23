@@ -16,6 +16,7 @@ import (
 	memstore "github.com/idolum-ai/aphelion/memory"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/session"
+	"github.com/idolum-ai/aphelion/tailnet"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 )
 
@@ -41,6 +42,7 @@ type Registry struct {
 	externalManifests               []ExternalToolManifest
 	externalExecutor                ExternalToolExecutor
 	codexImageGenerationProvider    agent.Provider
+	remoteHostRunner                tailnet.OpenSSHRunner
 	durableAgentPrincipalFallback   bool
 	capabilityGrantObserver         func(context.Context, session.SessionKey, session.CapabilityGrant)
 }
@@ -100,6 +102,24 @@ func (r *Registry) notifyCapabilityGrantObserver(key session.SessionKey, grant s
 
 func (r *Registry) WithCodexImageGenerationProvider(provider agent.Provider) *Registry {
 	r.SetCodexImageGenerationProvider(provider)
+	return r
+}
+
+func (r *Registry) WithRemoteHostSSH(sshPath string, timeout time.Duration) *Registry {
+	if r == nil {
+		return r
+	}
+	r.remoteHostRunner = tailnet.NewOpenSSHClient(tailnet.OpenSSHOptions{
+		SSHPath:        sshPath,
+		CommandTimeout: timeout,
+	})
+	return r
+}
+
+func (r *Registry) WithRemoteHostRunner(runner tailnet.OpenSSHRunner) *Registry {
+	if r != nil {
+		r.remoteHostRunner = runner
+	}
 	return r
 }
 
