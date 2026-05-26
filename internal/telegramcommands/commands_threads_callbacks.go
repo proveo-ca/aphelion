@@ -23,6 +23,18 @@ func recordTelegramThreadCallbackMessage(router commandRouter, chatID int64, thr
 	}
 	return recorder.RecordTelegramThreadCallbackMessage(chatID, threadID, messageID, surface)
 }
+
+func clearTelegramThreadCallbackMessage(router commandRouter, chatID int64, messageID int64, surface string) error {
+	if chatID == 0 || messageID <= 0 {
+		return nil
+	}
+	recorder, ok := router.(commandThreadCallbackRecorder)
+	if !ok {
+		return nil
+	}
+	return recorder.ClearTelegramThreadCallbackMessage(chatID, messageID, surface)
+}
+
 func encodeTelegramThreadPromoteCallback(threadID int64) string {
 	if threadID <= 0 {
 		return ""
@@ -163,6 +175,23 @@ func decodeTelegramThreadAbsorbCallback(data string) (int64, bool) {
 	threadID, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(trimmed, telegramThreadCallbackPrefix)), 10, 64)
 	return threadID, err == nil && threadID > 0
 }
+func encodeTelegramThreadDetailCallback(threadID int64) string {
+	if threadID <= 0 {
+		return ""
+	}
+	return telegramThreadDetailCallbackPrefix + strconv.FormatInt(threadID, 10)
+}
+func decodeTelegramThreadDetailCallback(data string) (int64, bool) {
+	trimmed := strings.TrimSpace(data)
+	if !strings.HasPrefix(trimmed, telegramThreadDetailCallbackPrefix) {
+		return 0, false
+	}
+	threadID, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(trimmed, telegramThreadDetailCallbackPrefix)), 10, 64)
+	return threadID, err == nil && threadID > 0
+}
+func decodeTelegramThreadBackCallback(data string) bool {
+	return strings.TrimSpace(data) == telegramThreadBackCallbackData
+}
 func decodeTelegramThreadSummaryCallback(data string) bool {
 	return strings.TrimSpace(data) == telegramThreadSummaryCallbackData
 }
@@ -186,7 +215,7 @@ func handleTelegramThreadSummaryCallback(ctx context.Context, sender commandCall
 		MessageID:       messageID,
 		IngressSurface:  telegramThreadSummaryIngressSurface,
 		IngressUpdateID: cb.UpdateID,
-		Text:            "/threads summarize",
+		Text:            "/threads analyze",
 	})
 	if err != nil {
 		if isTelegramThreadUserError(err) {
@@ -196,9 +225,90 @@ func handleTelegramThreadSummaryCallback(ctx context.Context, sender commandCall
 		}
 	}
 	if strings.TrimSpace(text) == "" {
-		text = "Summary queued."
+		text = "Analysis queued."
 	}
 	if err := sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), text); err != nil && !telegram.IsStaleCallbackQueryError(err) {
+		return true, err
+	}
+	return true, nil
+}
+func handleTelegramThreadDetailCallback(ctx context.Context, sender commandCallbackSender, router commandRouter, cb telegram.CallbackQuery) (bool, error) {
+	threadRouter, ok := router.(commandThreadRouter)
+	if !ok {
+		return true, sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), "Thread controls are unavailable.")
+	}
+	chatID := callbackChatID(cb)
+	senderID := callbackSenderID(cb)
+	messageID := callbackMessageID(cb)
+	threadID, ok := decodeTelegramThreadDetailCallback(cb.Data)
+	if chatID == 0 || senderID == 0 || messageID == 0 || !ok {
+		if err := sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), staleCommandMenuCallbackText); err != nil && !telegram.IsStaleCallbackQueryError(err) {
+			return true, err
+		}
+		return true, nil
+	}
+	threads, err := threadRouter.TelegramThreads(chatID)
+	if err != nil {
+		return true, err
+	}
+	var selected session.TelegramThread
+	found := false
+	for _, thread := range threads {
+		if thread.ThreadID == threadID && thread.Open() {
+			selected = thread
+			found = true
+			break
+		}
+	}
+	if !found {
+		if err := sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), "Thread is no longer open."); err != nil && !telegram.IsStaleCallbackQueryError(err) {
+			return true, err
+		}
+		return true, nil
+	}
+	if err := sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), "Thread opened."); err != nil && !telegram.IsStaleCallbackQueryError(err) {
+		return true, err
+	}
+	if err := recordTelegramThreadCallbackMessage(router, chatID, threadID, messageID, "thread_detail"); err != nil {
+		return true, err
+	}
+	if err := sender.EditMessageTextWithInlineKeyboard(ctx, chatID, messageID, renderTelegramThreadDetail(selected), "", telegramThreadDetailRows(selected)); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+func handleTelegramThreadBackCallback(ctx context.Context, sender commandCallbackSender, router commandRouter, cb telegram.CallbackQuery) (bool, error) {
+	threadRouter, ok := router.(commandThreadRouter)
+	if !ok {
+		return true, sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), "Thread controls are unavailable.")
+	}
+	chatID := callbackChatID(cb)
+	senderID := callbackSenderID(cb)
+	messageID := callbackMessageID(cb)
+	if chatID == 0 || senderID == 0 || messageID == 0 {
+		if err := sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), staleCommandMenuCallbackText); err != nil && !telegram.IsStaleCallbackQueryError(err) {
+			return true, err
+		}
+		return true, nil
+	}
+	threads, err := threadRouter.TelegramThreads(chatID)
+	if err != nil {
+		return true, err
+	}
+	rendered, rows := renderTelegramThreadsPanel(threads, telegramPageViewList, 1)
+	if len(rows) == 0 {
+		if err := sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), "No open threads."); err != nil && !telegram.IsStaleCallbackQueryError(err) {
+			return true, err
+		}
+		return true, nil
+	}
+	if err := sender.AnswerCallbackQuery(ctx, strings.TrimSpace(cb.ID), "Back to threads."); err != nil && !telegram.IsStaleCallbackQueryError(err) {
+		return true, err
+	}
+	if err := clearTelegramThreadCallbackMessage(router, chatID, messageID, "threads_list"); err != nil {
+		return true, err
+	}
+	if err := sender.EditMessageTextWithInlineKeyboard(ctx, chatID, messageID, rendered, "", rows); err != nil {
 		return true, err
 	}
 	return true, nil
@@ -358,9 +468,11 @@ func telegramThreadPromotionDraftRows(handoffID string) [][]telegram.InlineButto
 	}
 	return [][]telegram.InlineButton{
 		{
-			{Text: "Ready", CallbackData: encodeTelegramThreadPromotionReadyCallback(handoffID)},
-			{Text: "Refresh", CallbackData: encodeTelegramThreadPromotionRefreshCallback(handoffID)},
 			{Text: "Cancel", CallbackData: encodeTelegramThreadPromotionCancelCallback(handoffID)},
+			{Text: "Ready", CallbackData: encodeTelegramThreadPromotionReadyCallback(handoffID)},
+		},
+		{
+			{Text: "Refresh", CallbackData: encodeTelegramThreadPromotionRefreshCallback(handoffID)},
 		},
 	}
 }

@@ -207,9 +207,11 @@ func TestRenderTelegramStatusChatOperatorCardSeparatesBacklogAndRevokedContinuat
 	for _, needle := range []string{
 		"status: blocked",
 		"continuation: stopped",
+		"next: tap Pending Only, then approve or deny the pending decision",
 		"needs_attention:",
 		"- approval needed",
 		"backlog: 1 candidate mission(s)",
+		"evidence: as of 2026-05-06T12:00:00Z; source: chat status projection",
 	} {
 		if !strings.Contains(out, needle) {
 			t.Fatalf("RenderTelegramStatusChatOperatorCard() = %q, want substring %q", out, needle)
@@ -218,6 +220,83 @@ func TestRenderTelegramStatusChatOperatorCardSeparatesBacklogAndRevokedContinuat
 	for _, forbidden := range []string{"remaining_turns", "persona_intent", "governor_intent", "source="} {
 		if strings.Contains(out, forbidden) {
 			t.Fatalf("RenderTelegramStatusChatOperatorCard() = %q, should not contain %q", out, forbidden)
+		}
+	}
+}
+
+func TestRenderTelegramStatusChatOperatorCardPrioritizesAttentionWhileWorking(t *testing.T) {
+	t.Parallel()
+
+	out := RenderTelegramStatusChatOperatorCard(core.ChatStatusSnapshot{
+		GeneratedAt:   time.Date(2026, 5, 7, 12, 30, 0, 0, time.UTC),
+		ChatID:        7,
+		ActiveTurnIDs: []uint64{42},
+		LatestTurnRun: &core.TurnRunStatusSnapshot{
+			Status:       "running",
+			Kind:         "interactive",
+			LastToolName: "exec",
+			Source:       "canonical:execution_events.turn",
+		},
+		PendingItems: []core.PendingItem{
+			{Kind: core.PendingItemKindDecision, ChatID: 7, ID: "decision-1", Summary: "kind=proposal_approval"},
+		},
+	}, "sonnet", "xhigh", false)
+
+	for _, needle := range []string{
+		"status: working",
+		"why: running tool exec",
+		"next: tap Pending Only, then approve or deny the pending decision",
+		"needs_attention:",
+		"evidence: as of 2026-05-07T12:30:00Z; source: chat status projection; latest turn: canonical:execution_events.turn",
+	} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("RenderTelegramStatusChatOperatorCard() = %q, want substring %q", out, needle)
+		}
+	}
+}
+
+func TestRenderTelegramStatusOperatorViewsAvoidRawTelemetry(t *testing.T) {
+	t.Parallel()
+
+	views := map[string]string{
+		"system": RenderTelegramStatusSystemOperatorCard(core.SystemStatusSnapshot{
+			GeneratedAt: time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC),
+			PendingItems: []core.PendingItem{{
+				Kind:    core.PendingItemKindDecision,
+				ChatID:  7,
+				Summary: "Approve a pending action.",
+			}},
+		}, "sonnet", "medium"),
+		"hot": RenderTelegramStatusHotChatsOperatorCard(core.SystemStatusSnapshot{
+			GeneratedAt: time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC),
+			HotChats:    []core.ChatStatusRollup{{ChatID: 7, PendingCount: 1}},
+		}),
+		"find": RenderTelegramStatusFindChatOperatorCard(core.SystemStatusSnapshot{
+			GeneratedAt: time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC),
+			HotChats:    []core.ChatStatusRollup{{ChatID: 7, PendingCount: 1}},
+		}),
+		"durables": RenderTelegramStatusDurablesOperatorCard(core.DurableAgentsStatusSnapshot{
+			GeneratedAt:    time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC),
+			TotalAgents:    1,
+			DegradedAgents: 1,
+			Agents: []core.DurableAgentStatusSnapshot{{
+				AgentID:          "ops-child",
+				Status:           "active",
+				Health:           "degraded",
+				EnrollmentStatus: "active",
+			}},
+		}),
+	}
+	for name, out := range views {
+		for _, want := range []string{"Status:", "Why:", "Next:"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("%s operator view = %q, want %q", name, out, want)
+			}
+		}
+		for _, forbidden := range []string{"status_scope=", "summary ", "source=", "enabled=true", "kind="} {
+			if strings.Contains(out, forbidden) {
+				t.Fatalf("%s operator view = %q, should not contain raw telemetry %q", name, out, forbidden)
+			}
 		}
 	}
 }

@@ -72,14 +72,8 @@ type stubCommandRouter struct {
 	setModelSlotInput            core.ModelSlotConfig
 	setModelSlotActor            string
 	setModelSlotReason           string
-	setModelSlotTTL              time.Duration
 	setModelSlotReturn           core.ModelSlotStatus
 	setModelSlotErr              error
-	rollbackModelSlotInput       string
-	rollbackModelSlotActor       string
-	rollbackModelSlotReason      string
-	rollbackModelSlotReturn      core.ModelSlotStatus
-	rollbackModelSlotErr         error
 	clearModelSlotInput          string
 	clearModelSlotActor          string
 	clearModelSlotReason         string
@@ -164,8 +158,28 @@ type stubCommandRouter struct {
 	startDurableChatID           int64
 	startDurableSenderID         int64
 	startDurableAgentID          string
+	startDurableMessage          string
 	startDurableResult           string
 	startDurableErr              error
+	durableLifecycleChatID       int64
+	durableLifecycleSenderID     int64
+	durableLifecycleAgentID      string
+	durableLifecycleAction       string
+	durableLifecycleResult       string
+	durableLifecycleErr          error
+	agentAnalyzeMsg              *core.InboundMessage
+	agentAnalyzeResult           string
+	agentAnalyzeErr              error
+	agentCallbackChatID          int64
+	agentCallbackAgentID         string
+	agentCallbackMessageID       int64
+	agentCallbackSurface         string
+	agentCallbackErr             error
+	agentReplyChatID             int64
+	agentReplyMessageID          int64
+	agentReplyAgentID            string
+	agentReplyOK                 bool
+	agentReplyErr                error
 	missionCommandText           string
 	missionCommandErr            error
 	missionCommandChatID         int64
@@ -210,18 +224,23 @@ type stubCommandRouter struct {
 	applyMissionProposalSender   int64
 	applyMissionProposalID       string
 	applyMissionProposalChoice   string
+	missionAskPrompt             session.MissionAskPrompt
+	missionAskPromptOK           bool
+	missionAskPromptErr          error
+	missionAskPromptSenderID     int64
+	missionAskPromptID           string
+	resolveMissionAskStatus      session.MissionAskStatus
+	resolveMissionAskSummary     string
+	resolveMissionAskErr         error
+	queueMissionClarificationMsg *core.InboundMessage
+	queueMissionClarificationID  string
+	queueMissionClarificationErr error
 	memoryReviewBySource         map[memoryReviewSource]memoryReviewSnapshot
 	memoryReviewErr              error
 	memoryReviewChatID           int64
 	memoryReviewSenderID         int64
 	memoryReviewSource           memoryReviewSource
 	memoryReviewMessage          core.InboundMessage
-	memoryFocusByChat            map[int64]core.MemoryFocus
-	memoryFocusByThread          map[int64]core.MemoryFocus
-	setMemoryFocusMessage        core.InboundMessage
-	clearMemoryFocusMessage      core.InboundMessage
-	clearMemoryFocusChatID       int64
-	clearMemoryFocusResult       bool
 	threadCreateMsg              *core.InboundMessage
 	threadCreateReturn           session.TelegramThread
 	threadCreateErr              error
@@ -233,6 +252,10 @@ type stubCommandRouter struct {
 	threadCallbackMessageID      int64
 	threadCallbackSurface        string
 	threadCallbackErr            error
+	threadCallbackClearChatID    int64
+	threadCallbackClearMessageID int64
+	threadCallbackClearSurface   string
+	threadCallbackClearErr       error
 	threadStartMsg               *core.InboundMessage
 	threadStartText              string
 	threadStartReturn            session.TelegramThread
@@ -278,5 +301,6 @@ type stubCommandRouter struct {
 	absorbThreadID               int64
 	absorbThreadReturn           string
 	absorbThreadErr              error
+	clarificationMsg             *core.InboundMessage
 	order                        *[]string
 }

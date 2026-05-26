@@ -31,7 +31,7 @@ Current command surface:
   - Shows grouped, role-aware command help and a no-argument command menu.
 - `/status`
   - Opens status output with inline status controls (no command arguments).
-  - When explicitly targeted with `(thread N) /status` or by replying to a side-thread message, reports that side thread's session state.
+  - When explicitly targeted with `(thread N) /status` or by replying to a side-thread message, reports that side thread's session state and keeps its buttons thread-local.
 - `/health`
   - Opens status, trace, and diagnosis controls without requiring arguments.
   - `/health status` opens the live status view.
@@ -41,13 +41,18 @@ Current command surface:
   - Diagnosis launched from a button is durable callback work: the callback is terminally recorded and the diagnosis request is queued on its own replay surface.
   - Admin users get system and durable-agent sections in the expanded trace view.
 - `/agents`
-  - Admin-only durable-agent launcher.
-  - Lists durable agents with compact health cards and inline `Chat` buttons.
-  - Starts a background parent-child conversation kickoff for the selected durable agent.
+  - Admin-only durable-agent board.
+  - Lists current durable agents by default, with `Show Retired` for inspect-only retired children.
+  - Opens detail cards with `Brief`, `Park`, `Resume`, and guarded `Retire` controls where appropriate.
+  - `Analyze` queues a read-only main-chat analysis of the agent board; it does not wake, park, resume, or retire children.
+- `/context`
+  - Opens a read-only context panel for the current chat or side-thread lane.
+  - Shows current lane, operation/plan summary, recent context preview, evidence, and `Writes: none`.
+  - `Ask Me` queues durable callback-work clarification; it does not write memory or mutate state.
 - `/memory`
-  - Opens memory review with current focus, candidate count, source evidence, and inline controls across session history and semantic memory views.
-  - Lets the user set an active memory focus from a candidate item (`Focus 1/2/3`).
-  - Active focus is stored per session lane and injected as bounded turn context on subsequent non-command messages in that lane until cleared.
+  - Opens a read-only memory-state panel with durable store counts, session/semantic recall preview, source/query evidence, and `Writes: none`.
+  - Source selectors switch between session, shared semantic, and local semantic recall views.
+  - `Ask Me` queues durable callback-work clarification for memory confirmation/correction; it does not write memory or mutate state.
 - `/thread`
   - Creates an empty per-chat side thread and shows a compact guide when called without arguments.
   - Starts a side thread and routes the first turn from `/thread <message>`.
@@ -56,8 +61,9 @@ Current command surface:
   - Thread identity is stored as a typed session scope; the prefix is presentation, not transcript text.
 - `/threads`
   - Shows open and recently closed side threads for the chat.
-  - Provides `Absorb N` buttons for open threads.
-  - Provides a `Summarize` button that queues ordinary main-chat work to produce one short status across open threads.
+  - Provides compact numeric buttons for opening per-thread detail cards.
+  - Provides an `Analyze` button that queues ordinary main-chat work to produce a structured triage note across open threads.
+  - Provides `Promote`, `Absorb`, and `Back` buttons inside each open thread detail card.
 - `/absorb`
   - Closes a side thread with `/absorb N` and appends a compact bookkeeping note to the main chat session.
   - Stops the target side-thread lane before closing so active or queued side-thread work cannot append after absorb.
@@ -65,11 +71,13 @@ Current command surface:
 - `/tailnet`
   - Admin-only Tailnet declaration, private-surface, grant-binding, drift, and rollback evidence.
   - Shows local registry readiness, private parent status, durable-child control-plane evidence, and issue evidence without mutating live Tailscale policy.
-  - Provides button navigation for status, surfaces, grants, refresh, private status URL, and per-surface local revoke confirmation.
+  - Provides button navigation for status, paged surfaces, paged grants, refresh, private status URL, and inspect-before-revoke local registry confirmation.
 - `/mission`
   - Shows the current working objective and the caller-owned Mission Ledger entries.
   - Provides buttons for home/list, show, propose, pin/unpin, activate, pause, complete, archive, refresh, and admin health.
   - Supports manual `create`, `block`, and `summon` actions when typed input is the natural carrier for the new objective or reason.
+  - May offer a Mission Question card after an ordinary turn when typed mission evidence suggests the current work belongs with an existing mission or may be a new durable objective.
+  - Mission Question prompts are cooldown-governed typed ledger rows. `Ask Me` queues one clarification turn; `Ignore` records the ignored association.
   - Self-summon is review-only; Mission Ledger state does not grant self-continuation, autonomous continuation, new capabilities, or external authority.
 - Approval windows
   - Admin-only inline controls shown after an approval succeeds.
@@ -114,7 +122,7 @@ Visibility notes:
   side-thread work-lane commands. Approval-window callbacks use the scope of the
   approval message they are attached to.
 - Work-lane commands can be explicitly scoped to a side thread: `/status`,
-  `/memory`, `/stop`, `/new`, and `/detach` target a side thread when the
+  `/context`, `/memory`, `/stop`, `/new`, and `/detach` target a side thread when the
   command is written after `(thread N)` or sent as a reply to a known
   side-thread message. Bare commands still target the main chat-level view.
 
@@ -136,7 +144,7 @@ in the prompt body.
 ### Command menu
 
 `/start` and `/help` attach role-scoped command buttons. Public buttons include
-status, health, memory, mission, threads, stop, new, and detach. Admin buttons
+status, health, context, memory, mission, threads, stop, new, and detach. Admin buttons
 add models, agents, tailnet, reinstall, and restart.
 
 Menu callbacks route through the same command dispatcher as typed slash commands;
@@ -149,6 +157,10 @@ Always visible:
 - `This Chat`
 - `Pending Only`
 - `Refresh`
+
+Side-thread cards replace `This Chat` with `This Thread` and keep `Pending Only`
+and `Refresh` scoped to that side-thread session. Global admin drilldowns are
+available from default-chat `/status`, not from a thread-local status card.
 
 Admin-only:
 
@@ -166,8 +178,11 @@ Admin-only:
 Chat-scoped status now reports live work telemetry, not only router occupancy:
 
 - `Quick Read:` one-line human summary (Haiku-backed when a native provider key is configured), prepended ahead of the status block.
-- `Quick Read:` is grounded against the rendered status tokens; contradictory generated summaries are replaced with deterministic snapshot text.
-- Telemetry labels are rendered as human-readable labels with colons inside trace/evidence contexts. Operator `/status` panels use direct titles such as `Chat Status`, `System Status`, and `Durable Agents` instead of surfacing raw status-scope markers.
+- `Quick Read:` is grounded against typed status facts; contradictory generated summaries are replaced with deterministic snapshot text.
+- Chat and admin `/status` views render as deterministic operator triage cards: `Status`, `Why`, `Now` when chat-local, `Next`, attention/backlog or bounded detail counts, `Evidence`, runtime, and details.
+- `Next:` is state-specific: wait/refresh for active work, inspect pending decisions, resolve blockers, run `/health diagnose` for recovery, or send the next request when idle.
+- `Evidence:` includes the snapshot as-of time and status projection source so `/status` remains a bounded truth surface even when `/health trace` carries the raw evidence.
+- Raw status telemetry remains in `/health trace` and debug evidence. Operator `/status` panels use direct titles such as `Chat Status`, `System Status`, and `Durable Agents` instead of surfacing raw status-scope markers.
 - Bracketed machine envelopes are humanized in Telegram-facing status/trace output (for example, `[PLAN_UPDATED]` renders as `Plan Updated:` and closing tags are removed).
 - `turn_phase` for active in-flight stage (`face_proposal`, `brokerage`, `governor`, `render`, `persist`, `deliver`) when available.
 - `operation` and `plan_step` from persisted session sidecars.
@@ -222,11 +237,13 @@ Tailnet buttons keep private networking as a diagnostic/control projection:
 - `Surfaces`
 - `Grants`
 - `Open Status` when the private parent status URL is known
-- `Revoke <n>` on visible registered surfaces
+- `Surface <n>` and `Grant <n>` inside paged registry lists
+- `Revoke` only from a surface detail card
 
-Surface revoke buttons use short callback tokens, re-resolve the live surface
-registry on click, and require a second confirmation before writing the local
-registry revoke event.
+Surface and grant detail buttons use short callback tokens and re-resolve the
+current registry on click. Surface revoke also re-resolves the current registry,
+requires a second confirmation, writes only the local registry revoke event, and
+does not mutate live Tailscale policy.
 
 ### `/mission` controls
 
@@ -243,6 +260,22 @@ IDs:
 Callbacks resolve short mission tokens against the current authorized mission
 view before applying any state change. Mission actions update ledger records; they
 do not create continuation authority or capability grants.
+
+Mission Question cards are proactive clarification prompts. They appear only
+after a persisted ordinary reply, never for slash commands, callback work,
+durable-agent turns, or active approval surfaces. The card text is presentation;
+the durable record is `mission_ask_prompts`, with owner, scope, session, source
+message, mission candidate, confidence, evidence, status, and cooldown
+fingerprint. Low-confidence prompts are limited to roughly once per day per
+owner; high-confidence prompts to roughly once per four hours; repeated
+associations and ignored associations have their own longer cooldowns.
+
+Mission Question buttons are ordered as `Ignore` then `Ask Me`. `Ask Me` queues
+durable callback work that asks one natural clarification question and marks
+the prompt as asked. The next relevant turn receives a hidden input with the
+pending prompt id so the model can resolve it through the Mission Ledger tool
+after the operator answers. `Ignore` marks the prompt ignored without changing
+mission state.
 
 ### Approval Windows
 
@@ -276,7 +309,7 @@ requests apart without creating another operator channel.
 - Replies to side-thread messages route back to that thread when the reply
   target is present in the durable Telegram ledger, including guide cards,
   progress cards, thread-created messages, and ordinary outbound replies.
-- `/threads` lists threads and shows summarize/absorb buttons for open ones.
+- `/threads` lists open threads as a compact board with `Analyze` plus numeric thread buttons. Thread detail cards show `Promote`, `Absorb`, and `Back` controls.
 - `/absorb N` closes the thread and records a compact note in the main chat.
 
 The main chat remains thread `0`. Thread sessions have independent transcript,
@@ -284,14 +317,16 @@ plan, progress, and recovery state, so three child-agent setup requests in three
 threads do not share the same turn plan or router queue. Absorb is bookkeeping:
 it closes the side lane and carries the outcome back to the main transcript, but
 it does not merge every thread message into thread `0` and does not automatically
-approve memory writes. Summarize is also bookkeeping: its callback is recorded
+approve memory writes. Analyze is also bookkeeping: its callback is recorded
 as recoverable ingress, then it queues a normal thread-0 turn with bounded
-evidence from open side threads and does not close or absorb them.
+evidence from open side threads. It asks for quick read / needs action /
+stale-or-absorbable / blocked-or-waiting / suggested next move sections, and
+it does not close, promote, absorb, or otherwise mutate threads.
 
 Thread-scoped work-lane controls follow the same typed session scope as the
 turns themselves. Continuation approvals, progress-card `Stop`/`Reassess`,
 startup recovery prompts, busy/interrupt decisions, artifact retention prompts,
-and `/memory` focus are keyed to the side-thread session when the work came from
+and `/context`/`/memory` panels are keyed to the side-thread session when the work came from
 that side thread. Deferred busy and artifact decisions resume through their own
 recoverable Telegram ingress surfaces before the pending decision is cleared.
 Global operator surfaces stay global so authority and service state do not
@@ -362,29 +397,68 @@ Behavior:
 - delivers the child reply in the same chat when channel policy allows local reply
 - sender must still be authorized by the child (`allowed_telegram_user_ids` or admin role)
 
+### Durable agent board
+
+`/agents` is the operator board for durable children. It is global to the
+operator chat, not scoped to a side thread. The default view shows non-retired
+agents; the retired view is available for evidence without mixing old children
+into the active board.
+
+Board controls:
+
+- `Refresh`: re-read the current durable-agent projection.
+- `Analyze`: queue ordinary main-chat work that analyzes the board as a compact
+  triage note. The request is recorded as durable callback ingress before the
+  turn starts. It is read-only and explicitly asks not to wake children or mutate
+  authority.
+- `Show Retired` / `Show Current`: switch between current and retired views.
+- `Agent N`: open an agent detail card.
+
+Detail controls:
+
+- `Brief`: append a parent-conversation message asking the child for status,
+  then starts a bounded background wake attempt.
+- `Park`: mark the child parked and dormant. Scheduled and poll wakes stop while
+  policy, memory, profile, and audit history remain intact.
+- `Resume`: reactivate a parked or draft child after activation checks pass and
+  profile files are synced.
+- `Retire`: opens a confirmation card first. Confirmation removes the child from
+  active use, marks runtime dormant, revokes active child grants, decommissions
+  remote enrollment, and revokes local Tailnet surface trust when present. It
+  preserves memory, files, parent conversation, and audit records.
+
+Messages created by `/agents` carry a durable Telegram message-to-agent ledger.
+Replying to a ledgered agent card or agent ack sends that reply as a parent
+message to the same child and returns a visible `(agent <id>)` acknowledgement.
+The prefix is presentation; the routing source is the ledger.
+
+### `/context` controls
+
+- `Ask Me`
+- `Refresh`
+
+Behavior:
+
+- panel includes the current lane, operation/plan summary, recent context preview, evidence, and `Writes: none`.
+- `Ask Me` queues durable callback-work clarification asking what context assumptions should be confirmed or corrected. It does not write memory or change state.
+- `Refresh` reloads the panel in place.
+
 ### `/memory` review controls
 
 - Source selectors:
   - `Session`
-  - `Semantic Shared`
-  - `Semantic Local`
-- Candidate selectors:
-  - `Focus 1`
-  - `Focus 2`
-  - `Focus 3`
+  - `Shared`
+  - `Local`
 - Control row:
-  - `Clear Focus`
+  - `Ask Me`
   - `Refresh`
 
 Behavior:
 
-- panel includes:
-  - source id
-  - query seed
-  - active focus summary (or `none`)
-  - candidate items with labels and excerpts
-- focus applies to subsequent non-command inbound messages by prepending a machine-only `MEMORY_FOCUS_CONTEXT` block.
-- slash commands and durable relay payloads are not rewritten by memory-focus injection.
+- panel includes durable store counts, semantic/session recall counts, recall preview items, source/query evidence, and `Writes: none`.
+- recall preview items are evidence candidates only; they are not approved memories.
+- `Ask Me` queues durable callback-work clarification asking which memory assumptions or recall items should be confirmed, corrected, or rejected. It does not write memory or change state.
+- `Refresh` reloads the selected source in place.
 
 ### Continuation approval prompt
 
@@ -442,6 +516,14 @@ Decision prompts are shown with inline buttons. Depending on context, users can 
   - `Session`
   - `Save locally`
 
+Repository-history proposals are a nested gate under ordinary work
+continuation. If `git commit` is blocked, Telegram and tool diagnostics should
+name the causal chain instead of only saying `proposal denied`: gate
+`repository_commit`, required approval `proposal_approval`, status
+`expired`/`denied`, timeout/default-deny when applicable, whether continuation
+approval covered it (`no`), why not, and the concrete next action to approve
+the specific git commit proposal card or request a fresh one.
+
 ### Live progress card controls
 
 When a turn enters long-running activity/tool execution, Telegram shows one auto-updating progress card:
@@ -474,7 +556,8 @@ When a turn enters long-running activity/tool execution, Telegram shows one auto
   button can resume that exact pending message, or startup reissues a fresh
   prompt/defaults it through durable Telegram ingress.
 - Startup replay is limited to typed Telegram work surfaces: primary messages,
-  thread-summary work, doctor work, and decision-resume work.
+  thread-summary work, doctor work, context/memory clarification work, and
+  decision-resume work.
 - Approval buttons without a typed restart-resume path are detached as stale
   after restart; they do not grant authority to work that no longer has a live
   waiter.

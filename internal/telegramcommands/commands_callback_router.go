@@ -30,7 +30,11 @@ func handleTelegramCommandCallback(ctx context.Context, sender commandCallbackSe
 	if decodeTelegramThreadSummaryCallback(cb.Data) {
 		return handleTelegramThreadSummaryCallback(ctx, sender, router, cb)
 	}
-	if threadID, ok := decodeTelegramThreadPromoteCallback(cb.Data); ok {
+	if _, ok := decodeTelegramThreadDetailCallback(cb.Data); ok {
+		return handleTelegramThreadDetailCallback(ctx, sender, router, cb)
+	} else if decodeTelegramThreadBackCallback(cb.Data) {
+		return handleTelegramThreadBackCallback(ctx, sender, router, cb)
+	} else if threadID, ok := decodeTelegramThreadPromoteCallback(cb.Data); ok {
 		return handleTelegramThreadPromoteCallback(ctx, sender, router, cb, threadID)
 	}
 	if action, handoffID, ok := decodeTelegramThreadPromotionActionCallback(cb.Data); ok {
@@ -48,14 +52,20 @@ func handleTelegramCommandCallback(ctx context.Context, sender commandCallbackSe
 	if action, token, ok := decodeTailnetRevokeTokenCallbackData(cb.Data); ok {
 		return handleTailnetRevokeTokenCallback(ctx, sender, router, cb, action, token)
 	}
-	if action, surfaceID, ok := decodeTailnetRevokeCallbackData(cb.Data); ok {
-		return handleTailnetRevokeCallback(ctx, sender, router, cb, action, surfaceID)
+	if token, ok := decodeTailnetSurfaceCallbackData(cb.Data); ok {
+		return handleTailnetSurfaceCallback(ctx, sender, router, cb, token)
+	}
+	if token, ok := decodeTailnetGrantCallbackData(cb.Data); ok {
+		return handleTailnetGrantCallback(ctx, sender, router, cb, token)
 	}
 	if action, ok := decodeTailnetCallbackData(cb.Data); ok {
 		return handleTailnetCallback(ctx, sender, router, cb, action)
 	}
 	if view, targetChatID, ok := decodeStatusCallbackData(cb.Data); ok {
 		return handleStatusCallback(ctx, sender, router, cb, view, targetChatID)
+	}
+	if promptID, action, ok := core.DecodeMissionAskCallbackData(cb.Data); ok {
+		return handleMissionAskCallback(ctx, sender, router, cb, promptID, action)
 	}
 	if action, token, ok := decodeMissionCallbackData(cb.Data); ok {
 		return handleMissionCallback(ctx, sender, router, cb, action, token)
@@ -69,8 +79,11 @@ func handleTelegramCommandCallback(ctx context.Context, sender commandCallbackSe
 	if action, step, option, ok := decodeDurableWizardCallbackData(cb.Data); ok {
 		return handleDurableWizardCallback(ctx, sender, router, cb, action, step, option)
 	}
-	if action, agentID, ok := decodeDurableAgentsCallbackData(cb.Data); ok {
-		return handleDurableAgentsCallback(ctx, sender, router, cb, action, agentID)
+	if req, ok := decodeDurableAgentsCallbackData(cb.Data); ok {
+		return handleDurableAgentsCallback(ctx, sender, router, cb, req)
+	}
+	if action, ok := decodeContextCallbackData(cb.Data); ok {
+		return handleContextCallback(ctx, sender, router, cb, action)
 	}
 	if action, source, index, ok := decodeMemoryReviewCallbackData(cb.Data); ok {
 		return handleMemoryReviewCallback(ctx, sender, router, cb, action, source, index)
@@ -104,7 +117,21 @@ func handleStatusCallback(ctx context.Context, sender commandCallbackSender, rou
 		return true, err
 	}
 	personaEffort, governorEffort := router.CurrentEfforts()
-	rendered, rows, err := renderStatusView(ctx, router, chatID, senderID, view, targetChatID, personaEffort, governorEffort)
+	targetMsg, targetErr := telegramCallbackTargetMessage(router, cb)
+	if targetErr != nil {
+		return true, targetErr
+	}
+	var (
+		rendered string
+		rows     [][]telegram.InlineButton
+		err      error
+	)
+	if targetMsg.TelegramThreadID > 0 {
+		targetMsg.SenderID = senderID
+		rendered, rows, err = renderThreadStatusView(ctx, router, targetMsg, view, personaEffort, governorEffort)
+	} else {
+		rendered, rows, err = renderStatusView(ctx, router, chatID, senderID, view, targetChatID, personaEffort, governorEffort)
+	}
 	if err != nil {
 		return true, err
 	}

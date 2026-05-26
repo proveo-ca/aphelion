@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -37,68 +38,21 @@ func (r *Runtime) MemoryReviewSnapshotForKey(ctx context.Context, key session.Se
 	}
 
 	source = core.NormalizeMemoryReviewSource(string(source))
+	var (
+		snapshot core.MemoryReviewSnapshot
+		err      error
+	)
 	switch source {
 	case core.MemoryReviewSourceSemanticShared, core.MemoryReviewSourceSemanticLocal:
-		return r.memoryReviewSemantic(ctx, key, actor, source)
+		snapshot, err = r.memoryReviewSemantic(ctx, key, actor, source)
 	default:
-		return r.memoryReviewSessionRecent(key, source)
+		snapshot, err = r.memoryReviewSessionRecent(key, source)
 	}
-}
-
-func (r *Runtime) MemoryFocus(chatID int64) (core.MemoryFocus, bool) {
-	return r.MemoryFocusForKey(session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)})
-}
-
-func (r *Runtime) SetMemoryFocus(chatID int64, focus core.MemoryFocus) {
-	r.SetMemoryFocusForKey(session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)}, focus)
-}
-
-func (r *Runtime) ClearMemoryFocus(chatID int64) bool {
-	return r.ClearMemoryFocusForKey(session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)})
-}
-
-func (r *Runtime) MemoryFocusForKey(key session.SessionKey) (core.MemoryFocus, bool) {
-	if r == nil || key.ChatID == 0 {
-		return core.MemoryFocus{}, false
+	if err != nil {
+		return core.MemoryReviewSnapshot{}, err
 	}
-	sessionID := session.SessionIDForKey(key)
-	r.memoryFocusMu.RLock()
-	defer r.memoryFocusMu.RUnlock()
-	focus, ok := r.memoryFocusBySession[sessionID]
-	if !ok || !focus.Active() {
-		return core.MemoryFocus{}, false
-	}
-	return focus, true
-}
-
-func (r *Runtime) SetMemoryFocusForKey(key session.SessionKey, focus core.MemoryFocus) {
-	if r == nil || key.ChatID == 0 || !focus.Active() {
-		return
-	}
-	sessionID := session.SessionIDForKey(key)
-	r.memoryFocusMu.Lock()
-	defer r.memoryFocusMu.Unlock()
-	if r.memoryFocusBySession == nil {
-		r.memoryFocusBySession = make(map[string]core.MemoryFocus)
-	}
-	r.memoryFocusBySession[sessionID] = focus
-}
-
-func (r *Runtime) ClearMemoryFocusForKey(key session.SessionKey) bool {
-	if r == nil || key.ChatID == 0 {
-		return false
-	}
-	sessionID := session.SessionIDForKey(key)
-	r.memoryFocusMu.Lock()
-	defer r.memoryFocusMu.Unlock()
-	if r.memoryFocusBySession == nil {
-		return false
-	}
-	if _, ok := r.memoryFocusBySession[sessionID]; !ok {
-		return false
-	}
-	delete(r.memoryFocusBySession, sessionID)
-	return true
+	r.enrichMemoryReviewStats(actor, &snapshot)
+	return snapshot, nil
 }
 
 func (r *Runtime) memoryReviewSessionRecent(key session.SessionKey, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
@@ -130,6 +84,7 @@ func (r *Runtime) memoryReviewSessionRecent(key session.SessionKey, source core.
 			}
 		}
 		snapshot.Items = items
+		snapshot.Stats.SessionRecentCount = len(items)
 		return snapshot, nil
 	}
 	threads, err := r.store.ListTelegramThreads(key.ChatID, 12)
@@ -162,6 +117,7 @@ func (r *Runtime) memoryReviewSessionRecent(key session.SessionKey, source core.
 		}
 	}
 	snapshot.Items = items
+	snapshot.Stats.SessionRecentCount = len(items)
 	return snapshot, nil
 }
 
@@ -248,7 +204,59 @@ func (r *Runtime) memoryReviewSemantic(ctx context.Context, key session.SessionK
 		})
 	}
 	snapshot.Items = items
+	if source == core.MemoryReviewSourceSemanticLocal {
+		snapshot.Stats.SemanticLocalCount = len(items)
+	} else {
+		snapshot.Stats.SemanticSharedCount = len(items)
+	}
 	return snapshot, nil
+}
+
+func (r *Runtime) enrichMemoryReviewStats(actor principal.Principal, snapshot *core.MemoryReviewSnapshot) {
+	if snapshot == nil {
+		return
+	}
+	if snapshot.Stats.StoreCounts == nil {
+		snapshot.Stats.StoreCounts = map[string]int{}
+	}
+	scope, err := r.scopeForPrincipal(actor)
+	if err != nil {
+		snapshot.Stats.Partial = true
+		snapshot.Stats.Missing = append(snapshot.Stats.Missing, "durable store counts")
+		return
+	}
+	root := dynamicPromptRoot(scope)
+	for _, store := range []string{memstore.StoreMemory, memstore.StoreKnowledge, memstore.StoreDecisions, memstore.StoreQuestions, memstore.StoreRhizome, memstore.StoreDreams} {
+		count, err := countMemoryStoreLines(root, store)
+		if err != nil {
+			snapshot.Stats.Partial = true
+			snapshot.Stats.Missing = append(snapshot.Stats.Missing, store)
+			continue
+		}
+		snapshot.Stats.StoreCounts[store] = count
+	}
+}
+
+func countMemoryStoreLines(root string, store string) (int, error) {
+	path, _, err := memstore.ResolveStorePath(root, store)
+	if err != nil {
+		return 0, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- ") {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (r *Runtime) memoryReviewSeedQuery(key session.SessionKey) string {
@@ -257,32 +265,6 @@ func (r *Runtime) memoryReviewSeedQuery(key session.SessionKey) string {
 		return ""
 	}
 	return memoryReviewSeedQueryFromSession(sess)
-}
-
-func (r *Runtime) applyMemoryFocusToInbound(msg core.InboundMessage, key session.SessionKey) core.InboundMessage {
-	if r == nil || strings.TrimSpace(msg.DurableAgentID) != "" {
-		return msg
-	}
-	raw := strings.TrimSpace(msg.Text)
-	if raw == "" || strings.HasPrefix(raw, "/") || msg.Origin == core.InboundOriginTurnAuthorization {
-		return msg
-	}
-	focus, ok := r.MemoryFocusForKey(key)
-	if !ok || !focus.Active() {
-		return msg
-	}
-	lines := []string{
-		"MEMORY_FOCUS_CONTEXT",
-		fmt.Sprintf("source=%s", strings.TrimSpace(string(focus.Source))),
-		fmt.Sprintf("label=%s", strings.TrimSpace(focus.Label)),
-		fmt.Sprintf("query=%s", strings.TrimSpace(focus.Query)),
-	}
-	if excerpt := strings.TrimSpace(focus.Excerpt); excerpt != "" {
-		lines = append(lines, fmt.Sprintf("excerpt=%s", excerpt))
-	}
-	lines = append(lines, "Use this memory focus as the active topic unless the user explicitly pivots.", "", raw)
-	msg.Text = strings.Join(lines, "\n")
-	return msg
 }
 
 func memoryReviewSeedQueryFromSession(sess *session.Session) string {

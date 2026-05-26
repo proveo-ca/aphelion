@@ -14,6 +14,8 @@ import (
 const (
 	telegramThreadCallbackPrefix         = "thread_absorb:"
 	telegramThreadPromoteCallbackPrefix  = "thread_promote:"
+	telegramThreadDetailCallbackPrefix   = "thread_detail:"
+	telegramThreadBackCallbackData       = "thread_back"
 	telegramThreadPromotionReadyPrefix   = "thread_promo_ready:"
 	telegramThreadPromotionCancelPrefix  = "thread_promo_cancel:"
 	telegramThreadPromotionRefreshPrefix = "thread_promo_refresh:"
@@ -41,6 +43,7 @@ type commandThreadRouter interface {
 
 type commandThreadCallbackRecorder interface {
 	RecordTelegramThreadCallbackMessage(chatID int64, threadID int64, messageID int64, surface string) error
+	ClearTelegramThreadCallbackMessage(chatID int64, messageID int64, surface string) error
 }
 
 type telegramThreadUserError string

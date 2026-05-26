@@ -189,3 +189,74 @@ func migrateSchemaV55ToV56(tx *sql.Tx) error {
 	}
 	return nil
 }
+
+func migrateSchemaV57ToV58(tx *sql.Tx) error {
+	exists, err := schemaTableExists(tx, "model_slot_overrides")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	hasExpiresAt, err := schemaColumnExists(tx, "model_slot_overrides", "expires_at")
+	if err != nil {
+		return err
+	}
+	if !hasExpiresAt {
+		return nil
+	}
+	for _, stmt := range []string{
+		`DROP INDEX IF EXISTS idx_model_slot_overrides_slot_status`,
+		`ALTER TABLE model_slot_overrides RENAME TO model_slot_overrides_v57`,
+		`CREATE TABLE model_slot_overrides (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			slot TEXT NOT NULL,
+			config_json TEXT NOT NULL DEFAULT '{}',
+			previous_config_json TEXT NOT NULL DEFAULT '{}',
+			status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'superseded', 'cleared')),
+			created_by TEXT NOT NULL DEFAULT '',
+			reason TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`INSERT INTO model_slot_overrides (
+			id, slot, config_json, previous_config_json, status, created_by, reason, created_at, updated_at
+		)
+		SELECT
+			id,
+			slot,
+			config_json,
+			previous_config_json,
+			CASE
+				WHEN status IN ('expired', 'rolled_back') THEN 'cleared'
+				WHEN status = 'active' AND TRIM(COALESCE(expires_at, '')) != '' THEN 'cleared'
+				ELSE status
+			END,
+			created_by,
+			reason,
+			created_at,
+			updated_at
+		FROM model_slot_overrides_v57`,
+		`DROP TABLE model_slot_overrides_v57`,
+		`CREATE INDEX IF NOT EXISTS idx_model_slot_overrides_slot_status ON model_slot_overrides(slot, status, id DESC)`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migrate schema v57 to v58 model slot overrides: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrateSchemaV58ToV59(tx *sql.Tx) error {
+	if err := ensureTelegramAgentMessageTables(tx); err != nil {
+		return fmt.Errorf("migrate schema v58 to v59 ensure telegram agent message ledger: %w", err)
+	}
+	return nil
+}
+
+func migrateSchemaV59ToV60(tx *sql.Tx) error {
+	if err := ensureMissionLedgerTables(tx); err != nil {
+		return fmt.Errorf("migrate schema v59 to v60 ensure mission ask prompts: %w", err)
+	}
+	return nil
+}

@@ -87,10 +87,12 @@ Requirements:
   prefix is stripped before storage.
 - `/threads` lists open and recent side threads and exposes absorb buttons for
   open threads.
-- `/threads` exposes a `Summarize` button when open threads exist. The callback
+- `/threads` exposes an `Analyze` button when open threads exist. The callback
   is recorded as recoverable callback-work ingress, then queues ordinary
-  main-chat work with bounded open-thread evidence; it does not summarize inline
-  in the callback.
+  main-chat work with bounded open-thread evidence; it does not analyze inline
+  in the callback. The queued prompt uses operator-facing display thread
+  numbers, includes age/last-active/session-state evidence when available, and
+  asks for a structured triage note rather than a flat status list.
 - `/absorb N` closes thread `N` and records a compact outcome note in the main
   chat session.
 - Thread-visible replies, progress cards, and stream edits are prefixed with
@@ -104,7 +106,7 @@ Requirements:
   They share the same Telegram transport and same configured principal rules.
 - Absorb is bookkeeping and pruning. It does not automatically approve curated
   memory writes or copy the full thread transcript into thread `0`.
-- Summarize is bookkeeping. It does not close, absorb, or mutate side threads.
+- Analyze is bookkeeping. It does not close, promote, absorb, or mutate side threads.
 
 ## Update Normalization
 
@@ -352,6 +354,7 @@ At minimum for current implementation:
 - `/health`
 - `/tailnet`
 - `/agents`
+- `/context`
 - `/memory`
 - `/mission`
 - `/model`
@@ -364,6 +367,24 @@ At minimum for current implementation:
 These commands should be handled directly by the Telegram/runtime boundary rather than routed through the ordinary governor turn path.
 
 Telegram Bot API command identifiers should use underscore form rather than hyphen form so they remain valid commands and display correctly in Telegram clients.
+
+### `/tailnet`
+
+`/tailnet` is an admin-only Tailnet operator projection. It must show compact
+status, private parent status URL when known, registry surface evidence, grant
+binding evidence, and drift/issue evidence without mutating live Tailscale
+policy.
+
+Controls must be button-driven for finite choices:
+
+- `Refresh`, `Surfaces`, `Grants`, and optional `Open Status`
+- paged `Surface <n>` and `Grant <n>` detail buttons
+- `Revoke` only from a resolved surface detail card
+
+Surface and grant callbacks must use compact tokens that re-resolve against the
+current registry on click. Missing or colliding tokens are stale and must not
+mutate state. Surface revoke requires a second confirmation and writes only the
+local registry revoke/audit event.
 
 ### Button order language
 
@@ -378,6 +399,26 @@ Inline button labels must stay compact for Telegram surfaces: non-empty and at
 most two words. Put scope, phase, and safety detail in the surrounding message,
 not the button label.
 
+### Repository commit approval diagnostics
+
+`git commit` is a repository-history mutation and must be explained as its own
+nested approval gate. A continuation approval can resume the plan turn, but it
+does not by itself approve the lower-level repository-history proposal.
+
+When a repository commit approval is denied or expires, the user-facing denial
+and the tool error should include:
+
+- `gate: repository_commit`
+- required approval kind (`proposal_approval`)
+- required approval status (`denied` or `expired`)
+- default choice (`deny`)
+- timeout/default-deny reason when known
+- whether continuation approval covered it (`false` / `no`)
+- why not: continuation approval resumes the plan turn; git commit opens a
+  separate repository-history proposal
+- next action: approve the specific git commit proposal card, or request a fresh
+  commit approval if it expired
+
 ### `/start`
 
 Show a short intro and the command list.
@@ -390,7 +431,7 @@ Show the current command list and what each command does.
 
 `/status` is button-driven (no command arguments).
 
-The first response is a summary-first status snapshot plus inline controls.
+The first response is a summary-first status snapshot plus inline controls. Chat-scoped `/status` must act as a deterministic operator triage card, not just a telemetry projection: it should show `Status`, `Why`, `Now`, state-specific `Next`, attention/backlog items, `Evidence` with as-of time/source, runtime, and a bounded details pointer. Admin status drilldowns use the same operator-panel shape and keep raw telemetry in `/health trace`.
 
 User controls:
 
@@ -398,18 +439,24 @@ User controls:
 - `Pending Only`
 - `Refresh`
 
+When `/status` is scoped to a side thread, the first button is `This Thread`.
+The status message is recorded in the thread callback ledger, and `This Thread`,
+`Pending Only`, and `Refresh` callbacks must keep rendering that side thread's
+session state. Thread-local cards must not expose global admin drilldowns.
+
 Admin-only controls (visible only to Telegram admins):
 
 - `System Overview`
 - `Hot Chats`
 - `Find Chat`
+- `Durables`
 
 `Find Chat` must remain callback-first:
 
 - show recent active/pending chats as drill-down buttons (`status:chat:<chat_id>`)
 - avoid slash-command parameters for view selection
 
-Status payloads must include stable key labels so they remain machine-parseable later.
+Raw diagnostic status payloads must include stable key labels so they remain machine-parseable later. Telegram `/status` panels should consume typed status snapshots directly and render bounded human operator cards.
 
 At minimum, status snapshots should surface:
 
@@ -425,6 +472,8 @@ At minimum, status snapshots should surface:
 - detached/outstanding work counters (decisions, continuations, recovery, stale runs)
 - stale running turn indicators
 - stale-turn watchdog/restart health indicator
+- deterministic `Next:` guidance for the chat state (for example: inspect pending decisions, wait/refresh active work, resolve blockers, run `/health diagnose` for stale/recovery, or send the next request when idle)
+- `Evidence:` line with snapshot as-of time and status projection source
 
 ### `/health trace`
 
@@ -472,6 +521,41 @@ Requirements:
   - malformed wizard cards are acknowledged as stale and ignored
 - valid callbacks must execute deterministic wizard actions (`wizard_answer`, `wizard_show`, `wizard_finalize`, `wizard_cancel`) and edit the same Telegram message in place
 
+### `/context`
+
+Show a read-only current-context panel for the current chat or side-thread lane.
+
+At minimum it should surface:
+
+- current lane/scope
+- operation and plan summaries when present
+- recent session context preview
+- evidence/source labels
+- `Writes: none`
+
+Buttons:
+
+- `Ask Me` queues durable callback-work clarification about context assumptions; it must not write memory or mutate state.
+- `Refresh` reloads the same panel in place.
+
+### `/memory`
+
+Show a read-only memory-state panel. It is not a mutation surface.
+
+At minimum it should surface:
+
+- durable store counts
+- session/semantic recall counts
+- selected source and query seed
+- recall preview items as evidence candidates, not approved memories
+- `Writes: none`
+
+Buttons:
+
+- `Session`, `Shared`, and `Local` switch read-only source views.
+- `Ask Me` queues durable callback-work clarification about memory assumptions or recall items; it must not write memory or mutate state.
+- `Refresh` reloads the selected source in place.
+
 ### `/stop`
 
 Cancel the in-flight turn for the current DM session and drop any queued follow-up messages that have not started yet.
@@ -504,12 +588,23 @@ Default behavior should set `detach_pending_on_restart` to enabled.
 Admin-only model slot surface.
 
 The command should show current model routing and provide inline controls for
-slot-scoped model and effort choices when the configured provider surface allows
-them.
+slot-scoped model, thinking, and speed choices when the configured provider
+surface allows them.
 
-Selection should persist as runtime recipe state. Face model selection should
-affect future face proposal/render calls, and governor effort selection should
-affect interactive/recovery turns without changing heartbeat/cron defaults.
+The surface should stay small and role-shaped:
+
+- `Persona`: face proposal/render work
+- `Main`: interactive and recovery governor work
+- `Health`: diagnostic work
+- `Children`: default durable-child bootstrap work
+
+Slot overrides persist until changed or cleared. Clearing a slot returns it to
+the configured default. Runtime overrides should not mutate recipe files,
+constitutional files, or the base config on disk.
+
+OpenAI slots may expose `speed=fast`, which maps to the provider's priority
+service tier. Standard speed omits a service tier. Non-OpenAI slots should not
+show speed controls or accept fast mode.
 
 ## Outbound Delivery
 

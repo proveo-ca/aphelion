@@ -31,8 +31,6 @@ const (
 	ExecutionEventModelConfigValidated     = "model.config.validated"
 	ExecutionEventModelConfigChanged       = "model.config.changed"
 	ExecutionEventModelConfigRejected      = "model.config.rejected"
-	ExecutionEventModelConfigRolledBack    = "model.config.rolled_back"
-	ExecutionEventModelConfigExpired       = "model.config.expired"
 
 	ExecutionEventToolStarted               = "tool.started"
 	ExecutionEventToolSucceeded             = "tool.succeeded"
@@ -69,6 +67,9 @@ const (
 	ExecutionEventContinuationBlocked     = "continuation.blocked"
 	ExecutionEventContinuationParked      = "continuation.parked"
 	ExecutionEventContinuationResumed     = "continuation.resumed"
+
+	ExecutionEventMissionAskOffered    = "mission_ask.offered"
+	ExecutionEventMissionAskSuppressed = "mission_ask.suppressed"
 
 	ExecutionEventWorkExecutorSelected  = "work.executor.selected"
 	ExecutionEventWorkExecutorFallback  = "work.executor.fallback"
@@ -115,6 +116,7 @@ const (
 	ExecutionEventDurablePolicyApplied      = "durable.policy.applied"
 	ExecutionEventDurablePolicyApplyFailed  = "durable.policy.failed"
 	ExecutionEventDurableParentAck          = "durable.parent.acknowledged"
+	ExecutionEventDurableLifecycleChanged   = "durable.lifecycle.changed"
 	ExecutionEventDurableProvisionStarted   = "durable.provision.started"
 	ExecutionEventDurableProvisionCompleted = "durable.provision.completed"
 	ExecutionEventDurableProvisionFailed    = "durable.provision.failed"

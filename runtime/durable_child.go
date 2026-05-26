@@ -139,7 +139,7 @@ func durableAgentChildConfig(parent *config.Config, agent core.DurableAgent, sco
 	copy.Heartbeat.Enabled = false
 	copy.Cron.Enabled = false
 	copy.Voice = config.VoiceConfig{Mode: "off"}
-	copy.Governor = config.GovernorConfig{}
+	copy.Governor = durableChildGovernor(parent, bootstrap)
 	copy.Face = config.FaceConfig{Backend: string(faceBackendForChildBootstrap(bootstrap))}
 	copy.Agent.ExecRoot = scope.WorkingRoot
 	copy.Agent.SharedMemoryRoot = scope.SharedMemoryRoot
@@ -157,48 +157,54 @@ func durableAgentChildConfig(parent *config.Config, agent core.DurableAgent, sco
 	}
 	switch bootstrap.Backend {
 	case "codex":
-		copy.Governor.Backend = "codex"
-		copy.Governor.Codex = durableChildCodexConfig(parent, bootstrap)
 		copy.Providers = config.ProvidersConfig{}
 	case "native":
-		copy.Governor.Backend = "native"
-		copy.Governor.NativeProvider = bootstrap.NativeProvider
 		copy.Providers = durableChildProviders(parent, bootstrap)
 	}
 	return &copy
+}
+
+func durableChildGovernor(parent *config.Config, bootstrap core.NodeLLMBootstrap) config.GovernorConfig {
+	bootstrap = core.NormalizeNodeLLMBootstrap(bootstrap)
+	defaults := config.Default().Governor
+	brokerage := defaults.Brokerage
+	if parent != nil && parent.Governor.Brokerage != (config.BrokerageConfig{}) {
+		brokerage = parent.Governor.Brokerage
+	}
+
+	governor := config.GovernorConfig{Brokerage: brokerage}
+	switch bootstrap.Backend {
+	case "codex":
+		governor.Backend = "codex"
+		governor.Codex = durableChildCodexConfig(parent, bootstrap)
+	case "native":
+		governor.Backend = "native"
+		governor.NativeProvider = bootstrap.NativeProvider
+	}
+	return governor
 }
 
 func durableChildCodexConfig(parent *config.Config, bootstrap core.NodeLLMBootstrap) config.GovernorCodexConfig {
 	bootstrap = core.NormalizeNodeLLMBootstrap(bootstrap)
 	defaults := config.Default().Governor.Codex
 	codex := defaults
-	if parent != nil {
+	if parent != nil && parent.Governor.Codex != (config.GovernorCodexConfig{}) {
 		codex = parent.Governor.Codex
-		if strings.TrimSpace(codex.AuthSource) == "" {
-			codex.AuthSource = defaults.AuthSource
-		}
-		if strings.TrimSpace(codex.BaseURL) == "" {
-			codex.BaseURL = defaults.BaseURL
-		}
-		if strings.TrimSpace(codex.Model) == "" {
-			codex.Model = defaults.Model
-		}
-		if codex.ContextWindow <= 0 {
-			codex.ContextWindow = defaults.ContextWindow
-		}
-		if codex.MaxContinuations <= 0 {
-			codex.MaxContinuations = defaults.MaxContinuations
-		}
-		if codex.TransportRetries < 0 {
-			codex.TransportRetries = defaults.TransportRetries
-		}
-		if strings.TrimSpace(codex.ResponseHeaderTimeout) == "" {
-			codex.ResponseHeaderTimeout = defaults.ResponseHeaderTimeout
-		}
 	}
-	codex.AuthSource = firstNonEmpty(strings.TrimSpace(bootstrap.CodexAuthSource), strings.TrimSpace(codex.AuthSource))
-	codex.CodexHome = firstNonEmpty(strings.TrimSpace(bootstrap.CodexHome), strings.TrimSpace(codex.CodexHome))
-	codex.BaseURL = firstNonEmpty(strings.TrimSpace(bootstrap.CodexBaseURL), strings.TrimSpace(codex.BaseURL))
+
+	codex.AuthSource = firstNonEmpty(bootstrap.CodexAuthSource, defaults.AuthSource)
+	codex.AuthPath = ""
+	codex.CodexHome = strings.TrimSpace(bootstrap.CodexHome)
+	codex.BaseURL = firstNonEmpty(bootstrap.CodexBaseURL, codex.BaseURL, defaults.BaseURL)
+	codex.Model = firstNonEmpty(codex.Model, defaults.Model)
+	codex.ContextWindow = firstPositive(codex.ContextWindow, defaults.ContextWindow)
+	codex.MaxContinuations = firstPositive(codex.MaxContinuations, defaults.MaxContinuations)
+	if codex.TransportRetries < 0 {
+		codex.TransportRetries = defaults.TransportRetries
+	}
+	if strings.TrimSpace(codex.ResponseHeaderTimeout) == "" {
+		codex.ResponseHeaderTimeout = defaults.ResponseHeaderTimeout
+	}
 	return codex
 }
 

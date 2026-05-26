@@ -164,23 +164,11 @@ func (c telegramCommandControl) MissionActionProposal(ctx context.Context, chatI
 func (c telegramCommandControl) ApplyMissionActionProposalDecision(ctx context.Context, chatID int64, senderID int64, missionID string, choice string) (session.MissionState, bool, error) {
 	return c.controlFacade().ApplyMissionActionProposalDecision(ctx, chatID, senderID, missionID, choice)
 }
-func (c telegramCommandControl) MemoryFocus(chatID int64) (core.MemoryFocus, bool) {
-	return c.controlFacade().MemoryFocus(chatID)
+func (c telegramCommandControl) MissionAskPrompt(ctx context.Context, senderID int64, promptID string) (session.MissionAskPrompt, bool, error) {
+	return c.controlFacade().MissionAskPrompt(ctx, senderID, promptID)
 }
-func (c telegramCommandControl) MemoryFocusForMessage(msg core.InboundMessage) (core.MemoryFocus, bool) {
-	return c.controlFacade().MemoryFocusForMessage(msg)
-}
-func (c telegramCommandControl) SetMemoryFocus(chatID int64, focus core.MemoryFocus) {
-	c.controlFacade().SetMemoryFocus(chatID, focus)
-}
-func (c telegramCommandControl) SetMemoryFocusForMessage(msg core.InboundMessage, focus core.MemoryFocus) {
-	c.controlFacade().SetMemoryFocusForMessage(msg, focus)
-}
-func (c telegramCommandControl) ClearMemoryFocus(chatID int64) bool {
-	return c.controlFacade().ClearMemoryFocus(chatID)
-}
-func (c telegramCommandControl) ClearMemoryFocusForMessage(msg core.InboundMessage) bool {
-	return c.controlFacade().ClearMemoryFocusForMessage(msg)
+func (c telegramCommandControl) ResolveMissionAskPrompt(ctx context.Context, senderID int64, promptID string, status session.MissionAskStatus, summary string) (session.MissionAskPrompt, error) {
+	return c.controlFacade().ResolveMissionAskPrompt(ctx, senderID, promptID, status, summary)
 }
 
 func (c telegramCommandControl) ModelSlotStatuses() ([]core.ModelSlotStatus, error) {
@@ -189,11 +177,8 @@ func (c telegramCommandControl) ModelSlotStatuses() ([]core.ModelSlotStatus, err
 func (c telegramCommandControl) ValidateModelSlotConfig(cfg core.ModelSlotConfig) core.ModelValidation {
 	return c.controlFacade().ValidateModelSlotConfig(cfg)
 }
-func (c telegramCommandControl) SetModelSlotConfig(cfg core.ModelSlotConfig, actor string, reason string, ttl time.Duration) (core.ModelSlotStatus, error) {
-	return c.controlFacade().SetModelSlotConfig(cfg, actor, reason, ttl)
-}
-func (c telegramCommandControl) RollbackModelSlot(slot string, actor string, reason string) (core.ModelSlotStatus, error) {
-	return c.controlFacade().RollbackModelSlot(slot, actor, reason)
+func (c telegramCommandControl) SetModelSlotConfig(cfg core.ModelSlotConfig, actor string, reason string) (core.ModelSlotStatus, error) {
+	return c.controlFacade().SetModelSlotConfig(cfg, actor, reason)
 }
 func (c telegramCommandControl) ClearModelSlot(slot string, actor string, reason string) (core.ModelSlotStatus, error) {
 	return c.controlFacade().ClearModelSlot(slot, actor, reason)

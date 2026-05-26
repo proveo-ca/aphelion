@@ -7,7 +7,6 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/session"
 	"strings"
-	"time"
 )
 
 func (s *stubCommandRouter) ValidateModelSlotConfig(cfg core.ModelSlotConfig) core.ModelValidation {
@@ -18,11 +17,10 @@ func (s *stubCommandRouter) ValidateModelSlotConfig(cfg core.ModelSlotConfig) co
 	return core.ModelValidation{Valid: true, Config: core.NormalizeModelSlotConfig(cfg), ResolvedTransport: core.ModelTransportAnthropicMessages}
 }
 
-func (s *stubCommandRouter) SetModelSlotConfig(cfg core.ModelSlotConfig, actor string, reason string, ttl time.Duration) (core.ModelSlotStatus, error) {
+func (s *stubCommandRouter) SetModelSlotConfig(cfg core.ModelSlotConfig, actor string, reason string) (core.ModelSlotStatus, error) {
 	s.setModelSlotInput = cfg
 	s.setModelSlotActor = actor
 	s.setModelSlotReason = reason
-	s.setModelSlotTTL = ttl
 	if s.setModelSlotErr != nil {
 		return core.ModelSlotStatus{}, s.setModelSlotErr
 	}
@@ -40,16 +38,6 @@ func (s *stubCommandRouter) SetModelSlotConfig(cfg core.ModelSlotConfig, actor s
 			ResolvedTransport: core.ResolveModelTransport(normalized, core.ModelSlotUsesTools(normalized.Slot)),
 		},
 	}, nil
-}
-
-func (s *stubCommandRouter) RollbackModelSlot(slot string, actor string, reason string) (core.ModelSlotStatus, error) {
-	s.rollbackModelSlotInput = slot
-	s.rollbackModelSlotActor = actor
-	s.rollbackModelSlotReason = reason
-	if s.rollbackModelSlotErr != nil {
-		return core.ModelSlotStatus{}, s.rollbackModelSlotErr
-	}
-	return s.rollbackModelSlotReturn, nil
 }
 
 func (s *stubCommandRouter) ClearModelSlot(slot string, actor string, reason string) (core.ModelSlotStatus, error) {
@@ -104,10 +92,15 @@ func (s *stubCommandRouter) DurableAgentsList(senderID int64) ([]core.DurableAge
 }
 
 func (s *stubCommandRouter) StartDurableAgentConversation(ctx context.Context, chatID int64, senderID int64, agentID string) (string, error) {
+	return s.SendDurableAgentParentMessage(ctx, chatID, senderID, agentID, "Scheduled parent-child check-in from /agents. Share current status, blockers, and concrete next actions.")
+}
+
+func (s *stubCommandRouter) SendDurableAgentParentMessage(ctx context.Context, chatID int64, senderID int64, agentID string, message string) (string, error) {
 	_ = ctx
 	s.startDurableChatID = chatID
 	s.startDurableSenderID = senderID
 	s.startDurableAgentID = agentID
+	s.startDurableMessage = message
 	if s.startDurableErr != nil {
 		return "", s.startDurableErr
 	}
@@ -115,6 +108,53 @@ func (s *stubCommandRouter) StartDurableAgentConversation(ctx context.Context, c
 		return s.startDurableResult, nil
 	}
 	return "Started background conversation with durable agent " + strings.TrimSpace(agentID) + ".", nil
+}
+
+func (s *stubCommandRouter) DurableAgentLifecycleAction(ctx context.Context, chatID int64, senderID int64, agentID string, action string) (string, error) {
+	_ = ctx
+	s.durableLifecycleChatID = chatID
+	s.durableLifecycleSenderID = senderID
+	s.durableLifecycleAgentID = agentID
+	s.durableLifecycleAction = action
+	if s.durableLifecycleErr != nil {
+		return "", s.durableLifecycleErr
+	}
+	if strings.TrimSpace(s.durableLifecycleResult) != "" {
+		return s.durableLifecycleResult, nil
+	}
+	return "action: durable-agent " + strings.TrimSpace(action) + "\nagent_id: " + strings.TrimSpace(agentID), nil
+}
+
+func (s *stubCommandRouter) QueueDurableAgentAnalyze(_ context.Context, msg core.InboundMessage) (string, error) {
+	copied := msg
+	s.agentAnalyzeMsg = &copied
+	if s.agentAnalyzeErr != nil {
+		return "", s.agentAnalyzeErr
+	}
+	if strings.TrimSpace(s.agentAnalyzeResult) != "" {
+		return s.agentAnalyzeResult, nil
+	}
+	return "Agent board analysis queued.", nil
+}
+
+func (s *stubCommandRouter) RecordTelegramAgentCallbackMessage(chatID int64, agentID string, messageID int64, surface string) error {
+	s.agentCallbackChatID = chatID
+	s.agentCallbackAgentID = agentID
+	s.agentCallbackMessageID = messageID
+	s.agentCallbackSurface = surface
+	return s.agentCallbackErr
+}
+
+func (s *stubCommandRouter) TelegramAgentIDForReplyMessage(chatID int64, replyMessageID int64) (string, bool, error) {
+	s.agentReplyChatID = chatID
+	s.agentReplyMessageID = replyMessageID
+	if s.agentReplyErr != nil {
+		return "", false, s.agentReplyErr
+	}
+	if s.agentReplyOK {
+		return s.agentReplyAgentID, true, nil
+	}
+	return "", false, nil
 }
 
 func (s *stubCommandRouter) MissionCommand(ctx context.Context, chatID int64, senderID int64, args string) (string, error) {
@@ -226,6 +266,52 @@ func (s *stubCommandRouter) ApplyMissionActionProposalDecision(ctx context.Conte
 	return session.MissionState{ID: missionID, Title: "Mission", Status: session.MissionStatusActive}, true, nil
 }
 
+func (s *stubCommandRouter) MissionAskPrompt(ctx context.Context, senderID int64, promptID string) (session.MissionAskPrompt, bool, error) {
+	_ = ctx
+	s.missionAskPromptSenderID = senderID
+	s.missionAskPromptID = promptID
+	if s.missionAskPromptErr != nil {
+		return session.MissionAskPrompt{}, false, s.missionAskPromptErr
+	}
+	if strings.TrimSpace(s.missionAskPrompt.ID) != "" || s.missionAskPromptOK {
+		prompt := s.missionAskPrompt
+		if strings.TrimSpace(prompt.ID) == "" {
+			prompt.ID = promptID
+		}
+		if prompt.Status == "" {
+			prompt.Status = session.MissionAskStatusPending
+		}
+		return prompt, true, nil
+	}
+	return session.MissionAskPrompt{}, false, nil
+}
+
+func (s *stubCommandRouter) ResolveMissionAskPrompt(ctx context.Context, senderID int64, promptID string, status session.MissionAskStatus, summary string) (session.MissionAskPrompt, error) {
+	_ = ctx
+	s.missionAskPromptSenderID = senderID
+	s.missionAskPromptID = promptID
+	s.resolveMissionAskStatus = status
+	s.resolveMissionAskSummary = summary
+	if s.resolveMissionAskErr != nil {
+		return session.MissionAskPrompt{}, s.resolveMissionAskErr
+	}
+	prompt := s.missionAskPrompt
+	if strings.TrimSpace(prompt.ID) == "" {
+		prompt.ID = promptID
+	}
+	prompt.Status = status
+	prompt.ResultSummary = summary
+	return prompt, nil
+}
+
+func (s *stubCommandRouter) QueueMissionClarification(ctx context.Context, msg core.InboundMessage, promptID string) error {
+	_ = ctx
+	copied := msg
+	s.queueMissionClarificationMsg = &copied
+	s.queueMissionClarificationID = promptID
+	return s.queueMissionClarificationErr
+}
+
 func stubMissionState(id string, status session.MissionStatus) session.MissionState {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -271,64 +357,4 @@ func (s *stubCommandRouter) MemoryReviewSnapshot(ctx context.Context, chatID int
 func (s *stubCommandRouter) MemoryReviewSnapshotForMessage(ctx context.Context, msg core.InboundMessage, source memoryReviewSource) (memoryReviewSnapshot, error) {
 	s.memoryReviewMessage = msg
 	return s.MemoryReviewSnapshot(ctx, msg.ChatID, msg.SenderID, source)
-}
-
-func (s *stubCommandRouter) MemoryFocus(chatID int64) (core.MemoryFocus, bool) {
-	if s.memoryFocusByChat == nil {
-		return core.MemoryFocus{}, false
-	}
-	focus, ok := s.memoryFocusByChat[chatID]
-	return focus, ok
-}
-
-func (s *stubCommandRouter) MemoryFocusForMessage(msg core.InboundMessage) (core.MemoryFocus, bool) {
-	if s.memoryFocusByThread == nil || msg.TelegramThreadID <= 0 {
-		return core.MemoryFocus{}, false
-	}
-	focus, ok := s.memoryFocusByThread[msg.TelegramThreadID]
-	return focus, ok
-}
-
-func (s *stubCommandRouter) SetMemoryFocus(chatID int64, focus core.MemoryFocus) {
-	if s.memoryFocusByChat == nil {
-		s.memoryFocusByChat = make(map[int64]core.MemoryFocus)
-	}
-	s.memoryFocusByChat[chatID] = focus
-}
-
-func (s *stubCommandRouter) SetMemoryFocusForMessage(msg core.InboundMessage, focus core.MemoryFocus) {
-	s.setMemoryFocusMessage = msg
-	if msg.TelegramThreadID <= 0 {
-		s.SetMemoryFocus(msg.ChatID, focus)
-		return
-	}
-	if s.memoryFocusByThread == nil {
-		s.memoryFocusByThread = make(map[int64]core.MemoryFocus)
-	}
-	s.memoryFocusByThread[msg.TelegramThreadID] = focus
-}
-
-func (s *stubCommandRouter) ClearMemoryFocus(chatID int64) bool {
-	s.clearMemoryFocusChatID = chatID
-	if s.memoryFocusByChat != nil {
-		if _, ok := s.memoryFocusByChat[chatID]; ok {
-			delete(s.memoryFocusByChat, chatID)
-			return true
-		}
-	}
-	return s.clearMemoryFocusResult
-}
-
-func (s *stubCommandRouter) ClearMemoryFocusForMessage(msg core.InboundMessage) bool {
-	s.clearMemoryFocusMessage = msg
-	if msg.TelegramThreadID <= 0 {
-		return s.ClearMemoryFocus(msg.ChatID)
-	}
-	if s.memoryFocusByThread != nil {
-		if _, ok := s.memoryFocusByThread[msg.TelegramThreadID]; ok {
-			delete(s.memoryFocusByThread, msg.TelegramThreadID)
-			return true
-		}
-	}
-	return s.clearMemoryFocusResult
 }

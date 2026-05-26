@@ -172,5 +172,8 @@ func TelegramThreadSummaryIngressSurface() string { return telegramThreadSummary
 
 const telegramThreadSummaryIngressSurface = "telegram:callback-work:thread-summary"
 const telegramDoctorIngressSurface = "telegram:callback-work:doctor"
+const telegramContextClarificationIngressSurface = "telegram:callback-work:context-clarification"
+const telegramMemoryClarificationIngressSurface = "telegram:callback-work:memory-clarification"
+const telegramMissionClarificationIngressSurface = "telegram:callback-work:mission-clarification"
 
 var _ = core.TelegramCallbackDataMaxBytes

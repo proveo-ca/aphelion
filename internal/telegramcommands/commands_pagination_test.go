@@ -79,13 +79,13 @@ func TestThreadsCommandPaginatesThreadList(t *testing.T) {
 		t.Fatalf("handled=%t inline=%#v, want one paged thread panel", handled, sender.inline)
 	}
 	text := sender.inline[0].text
-	if !strings.Contains(text, "Page 1 of 2") || !strings.Contains(text, "thread 6: open") || strings.Contains(text, "thread 7: open") {
+	if !strings.Contains(text, "Page 1 of 2") || !strings.Contains(text, "thread 6:") || strings.Contains(text, "thread 7:") {
 		t.Fatalf("thread panel text = %q, want first page only", text)
 	}
 	if !commandRowsContain(sender.inline[0].rows, "Next", "page:threads:list:2") ||
-		!commandRowsContain(sender.inline[0].rows, "Absorb 6", "thread_absorb:6") ||
-		commandRowsContain(sender.inline[0].rows, "Absorb 7", "thread_absorb:7") {
-		t.Fatalf("thread rows = %#v, want page-local absorb buttons and next", sender.inline[0].rows)
+		!commandRowsContain(sender.inline[0].rows, "6", "thread_detail:6") ||
+		commandRowsContain(sender.inline[0].rows, "7", "thread_detail:7") {
+		t.Fatalf("thread rows = %#v, want page-local detail buttons and next", sender.inline[0].rows)
 	}
 }
 
@@ -119,12 +119,12 @@ func TestThreadsPageCallbackRendersRequestedPage(t *testing.T) {
 		t.Fatalf("handled=%t editInline=%#v, want edited page", handled, sender.editInline)
 	}
 	text := sender.editInline[0].text
-	if !strings.Contains(text, "Page 2 of 2") || !strings.Contains(text, "thread 7: open") || strings.Contains(text, "thread 6: open") {
+	if !strings.Contains(text, "Page 2 of 2") || !strings.Contains(text, "thread 7:") || strings.Contains(text, "thread 6:") {
 		t.Fatalf("thread page text = %q, want second page only", text)
 	}
 	if !commandRowsContain(sender.editInline[0].rows, "Prev", "page:threads:list:1") ||
-		!commandRowsContain(sender.editInline[0].rows, "Absorb 8", "thread_absorb:8") {
-		t.Fatalf("thread page rows = %#v, want prev and second-page absorb", sender.editInline[0].rows)
+		!commandRowsContain(sender.editInline[0].rows, "8", "thread_detail:8") {
+		t.Fatalf("thread page rows = %#v, want prev and second-page detail", sender.editInline[0].rows)
 	}
 }
 
@@ -156,10 +156,10 @@ func TestDurableAgentsCommandPaginatesAgentButtons(t *testing.T) {
 	if got := sender.inline[0].text; !strings.Contains(got, "page 1 of 2") || !strings.Contains(got, "5. child-5") || strings.Contains(got, "child-6") {
 		t.Fatalf("agents text = %q, want first page details", got)
 	}
-	if !commandRowsContain(sender.inline[0].rows, "Chat 5", "agents:start:child-5") ||
-		commandRowsContain(sender.inline[0].rows, "Chat 6", "agents:start:child-6") ||
+	if !commandRowsContain(sender.inline[0].rows, "Agent 5", encodeDurableAgentsDetailCallbackData("child-5", telegramPageViewList, 1)) ||
+		commandRowsContain(sender.inline[0].rows, "Agent 6", encodeDurableAgentsDetailCallbackData("child-6", telegramPageViewList, 1)) ||
 		!commandRowsContain(sender.inline[0].rows, "Next", "page:agents:list:2") {
-		t.Fatalf("agents rows = %#v, want first-page chat buttons and next", sender.inline[0].rows)
+		t.Fatalf("agents rows = %#v, want first-page agent buttons and next", sender.inline[0].rows)
 	}
 }
 

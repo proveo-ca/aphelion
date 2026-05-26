@@ -17,6 +17,13 @@ func (s *stubCommandRouter) QueueReinstall(ctx context.Context, msg core.Inbound
 	return nil
 }
 
+func (s *stubCommandRouter) QueueClarification(ctx context.Context, msg core.InboundMessage) error {
+	copied := msg
+	s.clarificationMsg = &copied
+	_ = ctx
+	return nil
+}
+
 func (s *stubCommandRouter) QueueDoctor(ctx context.Context, msg core.InboundMessage) error {
 	copied := msg
 	s.queuedDoctorMsg = &copied
@@ -77,6 +84,13 @@ func (s *stubCommandRouter) RecordTelegramThreadCallbackMessage(chatID int64, th
 	s.threadCallbackMessageID = messageID
 	s.threadCallbackSurface = surface
 	return s.threadCallbackErr
+}
+
+func (s *stubCommandRouter) ClearTelegramThreadCallbackMessage(chatID int64, messageID int64, surface string) error {
+	s.threadCallbackClearChatID = chatID
+	s.threadCallbackClearMessageID = messageID
+	s.threadCallbackClearSurface = surface
+	return s.threadCallbackClearErr
 }
 
 func (s *stubCommandRouter) StartTelegramThreadTarget(_ context.Context, msg core.InboundMessage, text string) (core.InboundMessage, session.TelegramThread, error) {

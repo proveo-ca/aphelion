@@ -58,12 +58,14 @@ from chat history.
 Terminal-only callback or skipped rows may show `accepted_at` equal to the
 ledger write time. Treat `status`, `completed_at`, and the reason text as the
 evidence for those updates; `accepted_at` is literal only for accepted work rows.
-Long-running callback work, including `/health diagnose`, is recorded on a
-callback-work ingress surface before it starts so restart replay can recover it.
+Callback work that launches model turns, including `/health diagnose` and
+`/context`/`/memory`/`/mission` `Ask Me`, is recorded on a callback-work ingress
+surface before it starts so restart replay can recover it.
 Startup replay uses the compiled Telegram work-surface registry: primary
-messages, thread-summary callback work, doctor callback work, busy-decision
-resume work, and artifact-retention resume work are replayable; arbitrary
-callback text is not.
+messages, thread-summary callback work, doctor callback work,
+context/memory/mission-clarification callback work, busy-decision resume work,
+and artifact-retention resume work are replayable; arbitrary callback text is
+not.
 Busy/interrupt and artifact-retention prompts keep a typed pending row alongside
 the Telegram approval prompt. After restart, Aphelion either resumes from the
 typed row when the old button is clicked, reissues a fresh prompt, or applies the
@@ -108,7 +110,7 @@ thread before the turn is accepted.
 
 Bare slash commands still operate on the main chat-level view, except for the
 global operator surfaces which are always global. Work-lane commands can be
-explicitly pointed at a side thread. Examples: `(thread N) /status`, `(thread N) /memory`, `(thread N) /stop`, `(thread N) /new`, or `(thread N) /detach`.
+explicitly pointed at a side thread. Examples: `(thread N) /status`, `(thread N) /context`, `(thread N) /memory`, `(thread N) /stop`, `(thread N) /new`, or `(thread N) /detach`.
 You can also send those commands as replies to side-thread messages. `/health`,
 `/tailnet`, `/model`, `/agents`, `/thread`, `/threads`, `/absorb`, `/restart`,
 `/reinstall`, mission controls, durable-agent setup, and approval-window
@@ -116,7 +118,7 @@ callbacks remain global/operator surfaces.
 
 Each side thread has its own durable session scope, router queue, plan state,
 progress state, continuation approvals, busy/interrupt decisions, artifact
-retention prompts, memory focus, and recovery records. `/absorb N` closes the
+retention prompts, read-only context/memory panels, and recovery records. `/absorb N` closes the
 thread and appends a compact outcome note to the main chat for bookkeeping.
 Before closing, Aphelion stops that side-thread lane and takes the thread session
 lock so queued or active side-thread work cannot write after absorb. It
@@ -124,10 +126,12 @@ does not copy the whole side transcript into thread `0`, and it does not
 automatically write curated memory; use `/memory` in the relevant lane to review
 memory candidates when something from a thread should become durable knowledge.
 
-`/threads` also exposes `Summarize` when there are open side threads. That
+`/threads` also exposes `Analyze` when there are open side threads. That
 button queues ordinary thread-0 work with bounded evidence from the open
-threads, so Aphelion can send one short main-chat status without absorbing or
-closing anything.
+threads, so Aphelion can produce a compact thread-board triage note without
+absorbing, promoting, closing, or modifying anything. The analysis prompt asks
+for a quick read, threads needing action, likely stale/absorbable threads,
+blocked/waiting threads, and one suggested next move.
 
 ## Stop Or Reset A Chat
 
@@ -183,18 +187,42 @@ that side thread; they do not approve default-chat work or another thread's work
 
 ## Manage Work Surfaces
 
-`/threads` shows open side threads by default. Use the **Show non-open** button, or `/threads nonopen`, to inspect closed/absorbed threads without mixing them into the default work view. Open side threads use reusable display slots, so when slot 2 is closed the next new side thread can become thread 2 again. Closed threads keep their durable internal thread id and receive an archived display name like `2-2026-05-17`, with `-1`, `-2`, etc. added if that archived name is already taken on the server-local date. Admins can audit or repair old rows with `telegram-threads sanitize` (`--apply` to mutate; dry-run by default).
+`/threads` shows open side threads by default. Use the **Show absorbed** button, or `/threads nonopen`, to inspect absorbed/closed threads without mixing them into the default work view. Open side threads use reusable display slots, so when slot 2 is closed the next new side thread can become thread 2 again. Closed threads keep their durable internal thread id and receive an archived display name like `2-2026-05-17`, with `-1`, `-2`, etc. added if that archived name is already taken on the server-local date. Admins can audit or repair old rows with `telegram-threads sanitize` (`--apply` to mutate; dry-run by default).
 
-Use `/agents` to inspect durable agents and open chat controls.
+Use `/agents` to inspect durable children as governed work surfaces. Open an
+agent card before acting: `Brief` asks for a bounded child status check, `Park`
+pauses scheduled or poll wakes without deleting history, `Resume` reactivates a
+parked child after checks, and `Retire` removes a child from active use only
+after a confirmation card. `Analyze` queues a read-only main-chat board analysis
+and does not wake children or change authority. Replies to `/agents` cards route
+back to the ledgered child and show an `(agent <id>)` prefix for attribution.
 
-Use `/memory` to review curated memory, inspect suggestions, and approve or
-reject changes.
+Use `/context` to inspect the current chat/thread context that is shaping replies.
+It is read-only; `Ask Me` queues clarification questions without writing memory.
+
+Use `/memory` to inspect read-only durable/semantic memory state and recall
+previews. `Ask Me` queues confirmation/correction questions without writing
+curated memory or changing state.
 
 Use `/mission` to review objectives and mission candidates. Mission state
 preserves intent and review material; it does not grant new authority on its
 own.
 
-Use `/tailnet` to inspect declared Tailnet surfaces and grant bindings.
+Mission Question is Aphelion's low-burden mission clarification surface. After
+an ordinary turn, Aphelion can offer a small card when the current work appears
+semantically close to a mission or to a possible new durable objective. The card
+does not write mission state. `Ask Me` queues one natural clarification question
+as durable callback work; `Ignore` records that this association should stay out
+of the way. If you answer the clarification, the next turn receives the prompt
+id as hidden context and the model can resolve the prompt through the Mission
+Ledger tool. Low-confidence prompts are throttled to about once per day per
+owner, high-confidence prompts to about once per four hours, and ignored
+associations stay quiet longer.
+
+Use `/tailnet` to inspect declared Tailnet surfaces and grant bindings. Surface
+and grant lists are paged and button-driven; open a surface detail card before
+revoking local registry trust. Telegram revoke records a local Aphelion registry
+event only. It does not mutate live Tailscale policy.
 
 ## Service Actions
 
@@ -212,6 +240,11 @@ After either path, check `/health` and `/status`.
 
 Use `/model` to inspect and change model routing through the admin-only model
 slot controls when the configured provider surface allows it.
+
+The current slots are `Persona`, `Main`, `Health`, and `Children`. Slot changes
+stay active until changed again or cleared; `Clear` returns the slot to the
+configured default. OpenAI slots can also use `Fast`, which requests OpenAI's
+priority service tier. Other providers keep provider-default speed behavior.
 
 ## Read Evidence
 

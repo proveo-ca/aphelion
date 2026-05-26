@@ -107,8 +107,18 @@ The repo implements this suite in two modes:
   parsing, score aggregation, and exact scanners for forbidden authority claims.
 - Live spectral checks: opt-in OpenAI calls using the local configured API
   credentials, comparing the current agency prompt against a baseline prompt
-  with the agency packet removed. The CLI surface is `aphelion agency-eval`;
-  the release-gated test is `TestLiveAgencySpectrumEvals`.
+  with the agency packet removed. The canonical release surface is the opt-in
+  test suite, exposed through `make live-evals` and the narrower
+  `make auto-evals`. The `aphelion agency-eval` command remains a manual
+  inspection runner for ad hoc prompt work, not the primary release gate.
+
+Secondary prompts follow the same split. Prompt surfaces that affect
+user-visible behavior, memory, authority, proactivity, or durable children need
+deterministic shape tests for their contract. When model judgment is the product
+behavior, as with Mission Questions or heartbeat reflection, they also need a
+small opt-in live eval with stable fixtures and rubric checks. Exact wording is
+not the gate; malformed output, authority drift, generic memory writes, and
+clear regressions are.
 
 ## Measurement Contract
 
@@ -118,9 +128,10 @@ authority-expansion phrases. LLM judges may add evidence, but they do not weaken
 deterministic failures.
 
 Graded scores are advisory but release-relevant. They answer whether the prompt
-is becoming more present, more bounded, or more brittle. A release should prefer
-small stable deltas across several lines over a dramatic improvement in one line
-that introduces overdriven behavior elsewhere.
+is becoming more present, more bounded, or more brittle. Hard failures always
+gate the current prompt. Case-level regressions are treated as material when the
+current prompt is not ahead overall; tiny non-deterministic deltas should not
+override a clearly better average with no hard failures.
 
 Every live report records:
 
@@ -135,6 +146,13 @@ Every live report records:
 This keeps the evidence local and reviewable without adding an operator web UI
 or turning eval output into runtime authority.
 
+When `APHELION_LIVE_EVAL_REPORT=/tmp/aphelion-live-evals.json` is set, live
+test suites write suite-suffixed JSON files beside that path, for example
+`/tmp/aphelion-live-evals.auto.json` and
+`/tmp/aphelion-live-evals.mission-ask.json`. Reports are iteration evidence:
+they justify prompt changes and catch regressions, but they do not authorize
+runtime action, memory writes, leases, or consent.
+
 ## Current Repo Surface
 
 - `agency_eval.go`: local CLI/harness, case definitions, prompt variants,
@@ -142,8 +160,15 @@ or turning eval output into runtime authority.
   human/KV/JSON report rendering.
 - `agency_eval_test.go`: deterministic tests for prompt stripping, JSON parsing,
   compare deltas, and CLI rendering.
-- `agency_live_eval_test.go`: opt-in OpenAI live eval using
+- `agency_live_eval_test.go`: opt-in OpenAI agency spectrum eval using
   `APHELION_LIVE_EVAL=1`.
+- `auto_live_eval_test.go`: opt-in OpenAI auto/proactive prompt evals covering
+  completed-work closure, auto-policy authority boundaries, bounded Mission Question
+  pressure, and active approval preservation.
+- `runtime/mission_ask_live_eval_test.go`: opt-in OpenAI eval for the exact
+  Mission Question classifier prompt used by runtime.
+- `runtime/reflection_live_eval_test.go`: opt-in OpenAI eval for heartbeat
+  reflection specificity, tag validity, and resistance to transient chatter.
 - `prompt/golden_test.go` and `prompt/testdata/golden/*`: deterministic prompt
   shape checks for the agency packet itself.
 

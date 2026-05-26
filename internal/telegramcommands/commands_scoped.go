@@ -6,13 +6,19 @@ import (
 	"context"
 
 	"github.com/idolum-ai/aphelion/core"
-	"github.com/idolum-ai/aphelion/face"
 	"github.com/idolum-ai/aphelion/telegram"
 )
 
 func renderStatusCommand(ctx context.Context, router commandRouter, msg core.InboundMessage, personaEffort string, governorEffort string) (string, [][]telegram.InlineButton, error) {
 	if msg.TelegramThreadID <= 0 {
 		return renderStatusView(ctx, router, msg.ChatID, msg.SenderID, statusViewChat, msg.ChatID, personaEffort, governorEffort)
+	}
+	return renderThreadStatusView(ctx, router, msg, statusViewChat, personaEffort, governorEffort)
+}
+
+func renderThreadStatusView(ctx context.Context, router commandRouter, msg core.InboundMessage, view statusView, personaEffort string, governorEffort string) (string, [][]telegram.InlineButton, error) {
+	if view != statusViewPending {
+		view = statusViewChat
 	}
 	scoped, ok := router.(commandScopedStatusRouter)
 	if !ok {
@@ -22,11 +28,11 @@ func renderStatusCommand(ctx context.Context, router commandRouter, msg core.Inb
 	if err != nil {
 		return "", nil, err
 	}
-	rawText := face.RenderTelegramStatusChat(chat, personaEffort, governorEffort, false)
-	summary := statusReadableSummaryText(ctx, router, statusViewChat, rawText)
-	text := telegramThreadDisplayPrefixForMessage(msg) + renderStatusChatOperatorView(chat, personaEffort, governorEffort, false, summary)
+	pendingOnly := view == statusViewPending
+	summary := statusReadableSummaryText(ctx, router, statusReadableFactsFromChat(view, chat))
+	text := telegramThreadDisplayPrefixForMessage(msg) + renderStatusChatOperatorView(chat, personaEffort, governorEffort, pendingOnly, summary)
 	text = humanizeTelegramTelemetryText(text)
-	rows := statusKeyboardRows(statusViewChat, msg.ChatID, msg.ChatID, router.CanRestart(msg.SenderID), core.SystemStatusSnapshot{}, false)
+	rows := statusKeyboardRows(view, msg.ChatID, msg.ChatID, false, core.SystemStatusSnapshot{}, false, true)
 	return text, rows, nil
 }
 
@@ -66,11 +72,30 @@ func memoryReviewSnapshotForCommand(ctx context.Context, router commandRouter, m
 	return router.MemoryReviewSnapshot(ctx, msg.ChatID, msg.SenderID, source)
 }
 
-func memoryFocusForCommand(router commandRouter, msg core.InboundMessage) (core.MemoryFocus, bool) {
+func contextSnapshotForCommand(ctx context.Context, router commandRouter, msg core.InboundMessage) (core.ContextSnapshot, error) {
+	var (
+		chat core.ChatStatusSnapshot
+		err  error
+	)
 	if msg.TelegramThreadID > 0 {
-		if scoped, ok := router.(commandScopedMemoryRouter); ok {
-			return scoped.MemoryFocusForMessage(msg)
+		if scoped, ok := router.(commandScopedStatusRouter); ok {
+			chat, err = scoped.StatusChatForMessage(msg)
+		} else {
+			chat, err = router.StatusChat(msg.ChatID)
 		}
+	} else {
+		chat, err = router.StatusChat(msg.ChatID)
 	}
-	return router.MemoryFocus(msg.ChatID)
+	if err != nil {
+		return core.ContextSnapshot{}, err
+	}
+	recent, err := memoryReviewSnapshotForCommand(ctx, router, msg, memoryReviewSourceSession)
+	if err != nil {
+		return core.ContextSnapshot{}, err
+	}
+	return core.ContextSnapshot{
+		GeneratedAt: recent.GeneratedAt,
+		Chat:        chat,
+		Recent:      recent.Items,
+	}, nil
 }

@@ -21,6 +21,9 @@ const (
 	PrimaryIngressSurface                         = telegramPrimaryIngressSurface
 	ThreadSummaryIngressSurface                   = telegramThreadSummaryIngressSurface
 	DoctorIngressSurface                          = telegramDoctorIngressSurface
+	ContextClarificationIngressSurface            = telegramContextClarificationIngressSurface
+	MemoryClarificationIngressSurface             = telegramMemoryClarificationIngressSurface
+	MissionClarificationIngressSurface            = telegramMissionClarificationIngressSurface
 	BusyDecisionResumeIngressSurface              = telegramBusyDecisionResumeIngressSurface
 	ArtifactRetentionDecisionResumeIngressSurface = telegramArtifactRetentionDecisionResumeIngressSurface
 

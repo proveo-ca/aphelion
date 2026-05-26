@@ -88,44 +88,16 @@ func (c CommandControl) ApplyMissionActionProposalDecision(ctx context.Context, 
 	return c.Runtime.ApplyMissionActionProposalDecision(ctx, chatID, senderID, missionID, choice)
 }
 
-func (c CommandControl) MemoryFocus(chatID int64) (core.MemoryFocus, bool) {
+func (c CommandControl) MissionAskPrompt(ctx context.Context, senderID int64, promptID string) (session.MissionAskPrompt, bool, error) {
 	if c.Runtime == nil {
-		return core.MemoryFocus{}, false
+		return session.MissionAskPrompt{}, false, fmt.Errorf("Mission Question is unavailable.")
 	}
-	return c.Runtime.MemoryFocus(chatID)
+	return c.Runtime.MissionAskPrompt(ctx, senderID, promptID)
 }
 
-func (c CommandControl) MemoryFocusForMessage(msg core.InboundMessage) (core.MemoryFocus, bool) {
+func (c CommandControl) ResolveMissionAskPrompt(ctx context.Context, senderID int64, promptID string, status session.MissionAskStatus, summary string) (session.MissionAskPrompt, error) {
 	if c.Runtime == nil {
-		return core.MemoryFocus{}, false
+		return session.MissionAskPrompt{}, fmt.Errorf("Mission Question is unavailable.")
 	}
-	return c.Runtime.MemoryFocusForKey(SessionKeyForMessage(msg))
-}
-
-func (c CommandControl) SetMemoryFocus(chatID int64, focus core.MemoryFocus) {
-	if c.Runtime == nil {
-		return
-	}
-	c.Runtime.SetMemoryFocus(chatID, focus)
-}
-
-func (c CommandControl) SetMemoryFocusForMessage(msg core.InboundMessage, focus core.MemoryFocus) {
-	if c.Runtime == nil {
-		return
-	}
-	c.Runtime.SetMemoryFocusForKey(SessionKeyForMessage(msg), focus)
-}
-
-func (c CommandControl) ClearMemoryFocus(chatID int64) bool {
-	if c.Runtime == nil {
-		return false
-	}
-	return c.Runtime.ClearMemoryFocus(chatID)
-}
-
-func (c CommandControl) ClearMemoryFocusForMessage(msg core.InboundMessage) bool {
-	if c.Runtime == nil {
-		return false
-	}
-	return c.Runtime.ClearMemoryFocusForKey(SessionKeyForMessage(msg))
+	return c.Runtime.ResolveMissionAskPrompt(ctx, senderID, promptID, status, summary)
 }

@@ -52,13 +52,17 @@ type commandRouter interface {
 	CurrentEfforts() (persona string, governor string)
 	ModelSlotStatuses() ([]core.ModelSlotStatus, error)
 	ValidateModelSlotConfig(cfg core.ModelSlotConfig) core.ModelValidation
-	SetModelSlotConfig(cfg core.ModelSlotConfig, actor string, reason string, ttl time.Duration) (core.ModelSlotStatus, error)
-	RollbackModelSlot(slot string, actor string, reason string) (core.ModelSlotStatus, error)
+	SetModelSlotConfig(cfg core.ModelSlotConfig, actor string, reason string) (core.ModelSlotStatus, error)
 	ClearModelSlot(slot string, actor string, reason string) (core.ModelSlotStatus, error)
 	ModelSlotHistory(slot string, limit int) ([]session.ModelSlotOverrideRecord, error)
 	RunDurableWizard(ctx context.Context, chatID int64, senderID int64, action string, agentID string, wizardAnswers map[string]any) (string, error)
 	DurableAgentsList(senderID int64) ([]core.DurableAgentStatusSnapshot, error)
 	StartDurableAgentConversation(ctx context.Context, chatID int64, senderID int64, agentID string) (string, error)
+	SendDurableAgentParentMessage(ctx context.Context, chatID int64, senderID int64, agentID string, message string) (string, error)
+	DurableAgentLifecycleAction(ctx context.Context, chatID int64, senderID int64, agentID string, action string) (string, error)
+	QueueDurableAgentAnalyze(ctx context.Context, msg core.InboundMessage) (string, error)
+	RecordTelegramAgentCallbackMessage(chatID int64, agentID string, messageID int64, surface string) error
+	TelegramAgentIDForReplyMessage(chatID int64, replyMessageID int64) (string, bool, error)
 	MemoryReviewSnapshot(ctx context.Context, chatID int64, senderID int64, source memoryReviewSource) (memoryReviewSnapshot, error)
 	MissionCommand(ctx context.Context, chatID int64, senderID int64, args string) (string, error)
 	MissionHome(ctx context.Context, chatID int64, senderID int64) ([]session.MissionState, session.WorkingObjective, bool, error)
@@ -68,9 +72,9 @@ type commandRouter interface {
 	MissionLedgerHealth(ctx context.Context, senderID int64) (session.MissionLedgerHealth, error)
 	MissionActionProposal(ctx context.Context, chatID int64, senderID int64, missionID string) (session.ActionProposal, error)
 	ApplyMissionActionProposalDecision(ctx context.Context, chatID int64, senderID int64, missionID string, choice string) (session.MissionState, bool, error)
-	MemoryFocus(chatID int64) (core.MemoryFocus, bool)
-	SetMemoryFocus(chatID int64, focus core.MemoryFocus)
-	ClearMemoryFocus(chatID int64) bool
+	MissionAskPrompt(ctx context.Context, senderID int64, promptID string) (session.MissionAskPrompt, bool, error)
+	ResolveMissionAskPrompt(ctx context.Context, senderID int64, promptID string, status session.MissionAskStatus, summary string) (session.MissionAskPrompt, error)
+	QueueMissionClarification(ctx context.Context, msg core.InboundMessage, promptID string) error
 }
 
 type commandScopedStatusRouter interface {
@@ -96,7 +100,6 @@ type approvalWindowRouter interface {
 
 type commandScopedMemoryRouter interface {
 	MemoryReviewSnapshotForMessage(ctx context.Context, msg core.InboundMessage, source memoryReviewSource) (memoryReviewSnapshot, error)
-	MemoryFocusForMessage(msg core.InboundMessage) (core.MemoryFocus, bool)
 }
 
 func handleTelegramCommand(ctx context.Context, sender commandSender, router commandRouter, msg core.InboundMessage) (bool, error) {
@@ -137,8 +140,14 @@ func handleTelegramCommand(ctx context.Context, sender commandSender, router com
 		if renderErr != nil {
 			return true, renderErr
 		}
-		if _, err := sender.SendInlineKeyboard(ctx, msg.ChatID, rendered, rows, replyToMessageID(msg.MessageID)); err != nil {
+		messageID, err := sender.SendInlineKeyboard(ctx, msg.ChatID, rendered, rows, replyToMessageID(msg.MessageID))
+		if err != nil {
 			return true, err
+		}
+		if msg.TelegramThreadID > 0 {
+			if err := recordTelegramThreadCallbackMessage(router, msg.ChatID, msg.TelegramThreadID, messageID, "status"); err != nil {
+				return true, err
+			}
 		}
 		return true, nil
 	case "health":
@@ -172,12 +181,24 @@ func handleTelegramCommand(ctx context.Context, sender commandSender, router com
 			return true, nil
 		}
 		if action == tailnetCommandRevoke {
-			surfaceID, _ := nextTailnetToken(rest)
+			surfaceID := strings.TrimSpace(rest)
 			if surfaceID == "" {
 				text = "Usage: /tailnet revoke <surface_id>"
 				break
 			}
-			rendered, rows := renderTailnetRevokeConfirmation(surfaceID)
+			surfaces, err := router.TailnetSurfaces(msg.SenderID)
+			if err != nil {
+				return true, err
+			}
+			surface, found := findTailnetSurfaceByID(surfaces, surfaceID)
+			if !found {
+				rendered := renderTailnetRevokeResult(surfaceID, core.TailnetSurfaceStatus{}, false)
+				if _, err := sender.SendMessage(ctx, core.OutboundMessage{ChatID: msg.ChatID, Text: rendered, ReplyTo: replyToMessageID(msg.MessageID)}); err != nil {
+					return true, err
+				}
+				return true, nil
+			}
+			rendered, rows := renderTailnetRevokeTokenConfirmation(surface.SurfaceID)
 			if _, err := sender.SendInlineKeyboard(ctx, msg.ChatID, rendered, rows, replyToMessageID(msg.MessageID)); err != nil {
 				return true, err
 			}
@@ -206,13 +227,27 @@ func handleTelegramCommand(ctx context.Context, sender commandSender, router com
 			return true, err
 		}
 		return true, nil
+	case "context":
+		snapshot, err := contextSnapshotForCommand(ctx, router, msg)
+		if err != nil {
+			return true, err
+		}
+		rendered, rows := renderContextPanel(snapshot)
+		rendered = telegramThreadDisplayPrefixForMessage(msg) + rendered
+		messageID, err := sender.SendInlineKeyboard(ctx, msg.ChatID, rendered, rows, replyToMessageID(msg.MessageID))
+		if err != nil {
+			return true, err
+		}
+		if err := recordTelegramThreadCallbackMessage(router, msg.ChatID, msg.TelegramThreadID, messageID, "context"); err != nil {
+			return true, err
+		}
+		return true, nil
 	case "memory":
 		snapshot, err := memoryReviewSnapshotForCommand(ctx, router, msg, memoryReviewSourceSession)
 		if err != nil {
 			return true, err
 		}
-		focus, _ := memoryFocusForCommand(router, msg)
-		rendered, rows := renderMemoryReviewPanel(snapshot, focus)
+		rendered, rows := renderMemoryReviewPanel(snapshot)
 		rendered = telegramThreadDisplayPrefixForMessage(msg) + rendered
 		messageID, err := sender.SendInlineKeyboard(ctx, msg.ChatID, rendered, rows, replyToMessageID(msg.MessageID))
 		if err != nil {
