@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/idolum-ai/aphelion/decision"
 	"github.com/idolum-ai/aphelion/internal/decisionprojection"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/telegram"
@@ -38,7 +39,7 @@ func TestProposalApprovalSummaryIsOutcomeFirst(t *testing.T) {
 		"git commit -m 'Document external channel runtime substrate'",
 	}, "\n")
 
-	text := approvedDecisionConfirmationText("Proposal", "3", decision.KindProposalApproval, details)
+	text := ApprovedConfirmationText("Proposal", "3", decision.KindProposalApproval, details)
 	for _, unwanted := range []string{"Approved content:", "Kind:", "Trigger:"} {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("approval text = %q, should not contain noisy metadata %q", text, unwanted)
@@ -76,7 +77,7 @@ func TestWorkspaceEscapeProposalSummaryIsDecisionOriented(t *testing.T) {
 		Details: details,
 	}}
 
-	summary := renderPendingDecisionSummary(pending)
+	summary := RenderPendingDecisionSummary(pending)
 	for _, want := range []string{
 		"I’d like to read repository files outside the configured workspace.",
 		"Command class: repo_read",
@@ -97,15 +98,15 @@ func TestTelegramExecApproverKeepsApprovalConfirmation(t *testing.T) {
 	sender := &decisionTestSender{}
 	var broker *decision.Broker
 	broker = decision.NewBroker(func(ctx context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
-		text := renderPendingDecisionSummary(pending)
-		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, inlineButtonRows(pending), replyToMessageID(pending.MessageID))
+		text := RenderPendingDecisionSummary(pending)
+		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, InlineButtonRows(pending), telegramcommands.ReplyToMessageID(pending.MessageID))
 		if err != nil {
 			return decision.Delivery{}, err
 		}
 		go broker.Resolve(pending.ID, "approve")
 		return decision.Delivery{MessageID: msgID}, nil
 	})
-	approver := newTelegramExecApprover(sender, broker)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout)
 
 	decisionResult, err := approver.ConfirmExec(context.Background(), toolpkg.ExecApprovalRequest{
 		Principal:  principal.Principal{Role: principal.RoleAdmin},
@@ -189,11 +190,11 @@ func TestRestartLoadedProposalApprovalCallbackIsStale(t *testing.T) {
 	}
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender, decision.WithDurableStore(newTelegramDecisionDurableStore(store)))
+	broker := NewBroker(sender, decision.WithDurableStore(NewDurableStore(store)))
 	if err := broker.Load(context.Background()); err != nil {
 		t.Fatalf("Load() err = %v", err)
 	}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, store)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, store)
 
 	if err := handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:   "cb-stale-approval",
@@ -259,11 +260,11 @@ func TestRestartReconciliationDetachesNonResumableProposalApproval(t *testing.T)
 	}
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender, decision.WithDurableStore(newTelegramDecisionDurableStore(store)))
+	broker := NewBroker(sender, decision.WithDurableStore(NewDurableStore(store)))
 	if err := broker.Load(context.Background()); err != nil {
 		t.Fatalf("Load() err = %v", err)
 	}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, store)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, store)
 	if err := handler.ReconcileRestartLoadedDecisions(context.Background()); err != nil {
 		t.Fatalf("ReconcileRestartLoadedDecisions() err = %v", err)
 	}
@@ -285,9 +286,9 @@ func TestTelegramExecApprovalConfirmationExpandShowsCommandAfterApproval(t *test
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, nil)
-	approver := newTelegramExecApprover(sender, broker)
+	broker := NewBroker(sender)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, nil)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout)
 	approver.SetTimeout(time.Second)
 
 	resultCh := make(chan toolpkg.ExecApprovalDecision, 1)
@@ -389,9 +390,9 @@ func TestTelegramExecApprovalExpandKeepsPendingDecisionButtons(t *testing.T) {
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, nil)
-	approver := newTelegramExecApprover(sender, broker)
+	broker := NewBroker(sender)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, nil)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout)
 	approver.SetTimeout(time.Second)
 
 	resultCh := make(chan toolpkg.ExecApprovalDecision, 1)
@@ -495,8 +496,8 @@ func TestTelegramDecisionCallbackRequiresOriginalActorAndMessage(t *testing.T) {
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, nil)
+	broker := NewBroker(sender)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, nil)
 	resolved := make(chan string, 1)
 	errCh := make(chan error, 1)
 	go func() {
@@ -577,8 +578,8 @@ func TestTelegramExecApproverRepositoryCommitTimeoutExplainsNestedGate(t *testin
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
-	approver := newTelegramExecApprover(sender, broker)
+	broker := NewBroker(sender)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout)
 	approver.SetTimeout(10 * time.Millisecond)
 
 	decisionResult, err := approver.ConfirmExec(context.Background(), toolpkg.ExecApprovalRequest{
@@ -627,8 +628,8 @@ func TestTelegramExecApproverTimesOutToDeny(t *testing.T) {
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
-	approver := newTelegramExecApprover(sender, broker)
+	broker := NewBroker(sender)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout)
 	approver.SetTimeout(10 * time.Millisecond)
 
 	decisionResult, err := approver.ConfirmExec(context.Background(), toolpkg.ExecApprovalRequest{
@@ -659,41 +660,4 @@ func TestTelegramExecApproverTimesOutToDeny(t *testing.T) {
 	if !strings.Contains(sender.inline[0].text, "I’d like to acquire browser automation.") {
 		t.Fatalf("inline text = %q, want intent-first capability proposal summary", sender.inline[0].text)
 	}
-}
-
-type execApprovalWindowOfferer struct {
-	store *session.SQLiteStore
-}
-
-func (e execApprovalWindowOfferer) CreateApprovalWindowOfferForKey(_ context.Context, key session.SessionKey, adminUserID int64, sourceKind string, sourceID string, sourceDecisionKind string) (session.ApprovalWindowOffer, bool, error) {
-	scope := session.NormalizeScopeRef(key.Scope)
-	if scope.IsZero() {
-		scope = session.ScopeRef{Kind: session.ScopeKindTelegramDM, ID: "7"}
-	}
-	if e.store != nil {
-		if existing, ok, err := e.store.ActiveApprovalWindowOfferForSource(key.ChatID, sourceKind, sourceID, time.Now().UTC()); err != nil {
-			return session.ApprovalWindowOffer{}, false, err
-		} else if ok {
-			return existing, true, nil
-		}
-	}
-	offer := session.ApprovalWindowOffer{
-		ID:                 "offer-" + sourceID,
-		ChatID:             key.ChatID,
-		AdminUserID:        adminUserID,
-		SessionID:          session.SessionIDForKey(session.SessionKey{ChatID: key.ChatID, Scope: scope}),
-		ScopeKind:          string(scope.Kind),
-		ScopeID:            scope.ID,
-		SourceKind:         sourceKind,
-		SourceID:           sourceID,
-		SourceDecisionKind: sourceDecisionKind,
-		CreatedAt:          time.Now().UTC(),
-		ExpiresAt:          time.Now().UTC().Add(time.Hour),
-		UpdatedAt:          time.Now().UTC(),
-	}
-	if e.store != nil {
-		stored, err := e.store.CreateApprovalWindowOffer(offer)
-		return stored, err == nil, err
-	}
-	return offer, true, nil
 }

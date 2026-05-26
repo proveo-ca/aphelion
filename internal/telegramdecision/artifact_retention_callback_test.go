@@ -1,12 +1,13 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
 	"encoding/json"
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/telegram"
 	"net/http"
@@ -33,8 +34,8 @@ func TestTelegramPollerArtifactRetentionCallbackStarvesBehindBlockingMessageHand
 	callbackHandledAt := time.Time{}
 	callbackDataReady := make(chan string, 1)
 	broker := decision.NewBroker(func(ctx context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
-		text := renderPendingDecisionSummary(pending)
-		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, inlineButtonRows(pending), replyToMessageID(pending.MessageID))
+		text := RenderPendingDecisionSummary(pending)
+		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, InlineButtonRows(pending), telegramcommands.ReplyToMessageID(pending.MessageID))
 		if err != nil {
 			return decision.Delivery{}, err
 		}
@@ -44,7 +45,7 @@ func TestTelegramPollerArtifactRetentionCallbackStarvesBehindBlockingMessageHand
 		}
 		return decision.Delivery{MessageID: msgID}, nil
 	})
-	handler := newTelegramDecisionHandler(sender, router, broker, store)
+	handler := NewHandler(sender, router, broker, store)
 	handler.artifactRetentionTimeout = 3 * time.Second
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +179,7 @@ func TestTelegramPollerArtifactRetentionCallbackStarvesBehindBlockingMessageHand
 func TestInlineButtonRowsNormalizesAffirmativeNegativePairOrder(t *testing.T) {
 	t.Parallel()
 
-	rows := inlineButtonRows(decision.PendingDecision{
+	rows := InlineButtonRows(decision.PendingDecision{
 		ID:      "decision-1",
 		Request: decision.Request{Choices: []decision.Choice{{ID: "approve", Label: "Approve"}, {ID: "deny", Label: "Deny"}}},
 	})
@@ -196,7 +197,7 @@ func TestInlineButtonRowsNormalizesAffirmativeNegativePairOrder(t *testing.T) {
 func TestInlineButtonRowsPreservesStopQueueOrder(t *testing.T) {
 	t.Parallel()
 
-	rows := inlineButtonRows(decision.PendingDecision{
+	rows := InlineButtonRows(decision.PendingDecision{
 		ID:      "decision-2",
 		Request: decision.Request{Choices: []decision.Choice{{ID: "stop", Label: "Stop"}, {ID: "queue", Label: "Queue"}}},
 	})
@@ -216,14 +217,14 @@ func TestTelegramUserApprovalTimeoutDefaultsToThirtyMinutes(t *testing.T) {
 
 	sender := &decisionTestSender{}
 	broker := decision.NewBroker(nil)
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, nil)
-	execApprover := newTelegramExecApprover(sender, broker)
-	memoryApprover := newTelegramDurableMemoryDelegationApprover(sender, broker)
-	snapshotApprover := newTelegramDurableSnapshotRestoreApprover(sender, broker)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, nil)
+	execApprover := NewExecApprover(sender, broker, DefaultExecApprovalTimeout)
+	memoryApprover := NewDurableMemoryDelegationApprover(sender, broker, DefaultMemoryDelegationTimeout)
+	snapshotApprover := NewDurableSnapshotRestoreApprover(sender, broker, DefaultSnapshotRestoreTimeout)
 
 	want := 30 * time.Minute
-	if defaultUserApprovalTimeout != want {
-		t.Fatalf("defaultUserApprovalTimeout = %s, want %s", defaultUserApprovalTimeout, want)
+	if DefaultUserApprovalTimeout != want {
+		t.Fatalf("DefaultUserApprovalTimeout = %s, want %s", DefaultUserApprovalTimeout, want)
 	}
 	if execApprover.Timeout() != want {
 		t.Fatalf("exec approval timeout = %s, want %s", execApprover.Timeout(), want)

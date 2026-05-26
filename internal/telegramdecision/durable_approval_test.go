@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/telegram"
@@ -23,15 +24,15 @@ func TestTelegramDurableMemoryDelegationApproverPromptsWithButtons(t *testing.T)
 	sender := &decisionTestSender{}
 	var broker *decision.Broker
 	broker = decision.NewBroker(func(ctx context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
-		text := renderPendingDecisionSummary(pending)
-		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, inlineButtonRows(pending), replyToMessageID(pending.MessageID))
+		text := RenderPendingDecisionSummary(pending)
+		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, InlineButtonRows(pending), telegramcommands.ReplyToMessageID(pending.MessageID))
 		if err != nil {
 			return decision.Delivery{}, err
 		}
 		go broker.Resolve(pending.ID, "approve")
 		return decision.Delivery{MessageID: msgID}, nil
 	})
-	approver := newTelegramDurableMemoryDelegationApprover(sender, broker)
+	approver := NewDurableMemoryDelegationApprover(sender, broker, DefaultMemoryDelegationTimeout)
 
 	decisionResult, err := approver.ConfirmDurableMemoryDelegation(context.Background(), toolpkg.DurableMemoryDelegationApprovalRequest{
 		Principal:  principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
@@ -95,15 +96,15 @@ func TestTelegramDurableSnapshotRestoreApproverPromptsWithButtons(t *testing.T) 
 	sender := &decisionTestSender{}
 	var broker *decision.Broker
 	broker = decision.NewBroker(func(ctx context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
-		text := renderPendingDecisionSummary(pending)
-		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, inlineButtonRows(pending), replyToMessageID(pending.MessageID))
+		text := RenderPendingDecisionSummary(pending)
+		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, InlineButtonRows(pending), telegramcommands.ReplyToMessageID(pending.MessageID))
 		if err != nil {
 			return decision.Delivery{}, err
 		}
 		go broker.Resolve(pending.ID, "approve")
 		return decision.Delivery{MessageID: msgID}, nil
 	})
-	approver := newTelegramDurableSnapshotRestoreApprover(sender, broker)
+	approver := NewDurableSnapshotRestoreApprover(sender, broker, DefaultSnapshotRestoreTimeout)
 
 	decisionResult, err := approver.ConfirmDurableSnapshotRestore(context.Background(), toolpkg.DurableSnapshotRestoreApprovalRequest{
 		Principal:  principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
@@ -162,7 +163,7 @@ func TestHandleCallbackQueryIgnoresExpiredAckAndResolvesDecision(t *testing.T) {
 		pendingSeen <- pending
 		return decision.Delivery{MessageID: 91}, nil
 	})
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, nil)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, nil)
 
 	go func() {
 		result, err := broker.Request(context.Background(), decision.Request{
@@ -214,7 +215,7 @@ func TestHandleCallbackQueryReturnsNonStaleAckError(t *testing.T) {
 	sender := &decisionTestSender{
 		answerErr: errors.New("telegram answerCallbackQuery failed: Bad Request: chat not found"),
 	}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(func(_ context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
+	handler := NewHandler(sender, &decisionTestRouter{}, decision.NewBroker(func(_ context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
 		return decision.Delivery{MessageID: 1}, nil
 	}), nil)
 
@@ -234,7 +235,7 @@ func TestHandleCallbackQueryReturnsStaleMessageForMissingDecision(t *testing.T) 
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), nil)
+	handler := NewHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), nil)
 
 	if err := handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:   "cb-stale",

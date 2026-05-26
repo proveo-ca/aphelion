@@ -14,6 +14,9 @@ import (
 	"github.com/idolum-ai/aphelion/telegram"
 )
 
+// These tests intentionally stay in package main because Review-event callbacks
+// are root composition glue implemented in telegram_decisions_review.go,
+// not internal telegramdecision.Handler behavior.
 func TestHandleReviewEventCallbackApprovesCapabilityRequest(t *testing.T) {
 	t.Parallel()
 

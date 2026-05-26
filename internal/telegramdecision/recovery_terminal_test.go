@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"github.com/idolum-ai/aphelion/session"
 )
 
@@ -37,8 +38,8 @@ func TestDecisionResumeStatusTreatsCanonicalTerminalsAsTerminal(t *testing.T) {
 
 			msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressUpdateID: 9101, Text: "resume status"}
 			if err := store.RecordTelegramIngressTerminal(session.TelegramIngressUpdateRecord{
-				Surface:     telegramBusyDecisionResumeIngressSurface,
-				UpdateID:    telegramDecisionResumeUpdateID(msg, telegramBusyDecisionResumeIngressSurface),
+				Surface:     telegramruntime.BusyDecisionResumeIngressSurface,
+				UpdateID:    DecisionResumeUpdateID(msg, telegramruntime.BusyDecisionResumeIngressSurface),
 				UpdateKind:  "decision_resume_busy",
 				ChatID:      msg.ChatID,
 				SenderID:    msg.SenderID,
@@ -50,12 +51,12 @@ func TestDecisionResumeStatusTreatsCanonicalTerminalsAsTerminal(t *testing.T) {
 				t.Fatalf("RecordTelegramIngressTerminal() err = %v", err)
 			}
 
-			got, err := (&telegramDecisionHandler{store: store}).decisionResumeStatus(msg, telegramBusyDecisionResumeIngressSurface)
+			got, err := (&Handler{store: store}).DecisionResumeStatus(msg, telegramruntime.BusyDecisionResumeIngressSurface)
 			if err != nil {
-				t.Fatalf("decisionResumeStatus() err = %v", err)
+				t.Fatalf("DecisionResumeStatus() err = %v", err)
 			}
-			if got != telegramDecisionResumeTerminal {
-				t.Fatalf("decisionResumeStatus(%s) = %v, want terminal", status, got)
+			if got != DecisionResumeTerminal {
+				t.Fatalf("DecisionResumeStatus(%s) = %v, want terminal", status, got)
 			}
 		})
 	}
@@ -78,8 +79,8 @@ func TestRestartReconciliationCleansBusyDecisionForTerminalResumeIngress(t *test
 			}
 			t.Cleanup(func() { _ = store.Close() })
 
-			msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramPrimaryIngressSurface, IngressUpdateID: 9201, Text: "stale busy message"}
-			ownerKey := telegramSessionOwnerKey(msg)
+			msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramruntime.PrimaryIngressSurface, IngressUpdateID: 9201, Text: "stale busy message"}
+			ownerKey := telegramruntime.SessionOwnerKey(msg)
 			raw, err := json.Marshal(msg)
 			if err != nil {
 				t.Fatalf("Marshal() err = %v", err)
@@ -98,8 +99,8 @@ func TestRestartReconciliationCleansBusyDecisionForTerminalResumeIngress(t *test
 			}
 			seedRestartLoadedPendingDecision(t, store, "old-busy-terminal", ownerKey, msg, decision.KindInterrupt)
 			if err := store.RecordTelegramIngressTerminal(session.TelegramIngressUpdateRecord{
-				Surface:     telegramBusyDecisionResumeIngressSurface,
-				UpdateID:    telegramDecisionResumeUpdateID(msg, telegramBusyDecisionResumeIngressSurface),
+				Surface:     telegramruntime.BusyDecisionResumeIngressSurface,
+				UpdateID:    DecisionResumeUpdateID(msg, telegramruntime.BusyDecisionResumeIngressSurface),
 				UpdateKind:  "decision_resume_busy",
 				ChatID:      msg.ChatID,
 				SenderID:    msg.SenderID,
@@ -113,11 +114,11 @@ func TestRestartReconciliationCleansBusyDecisionForTerminalResumeIngress(t *test
 
 			sender := &decisionTestSender{}
 			router := &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}
-			broker := newTelegramDecisionBroker(sender, decision.WithDurableStore(newTelegramDecisionDurableStore(store)))
+			broker := NewBroker(sender, decision.WithDurableStore(NewDurableStore(store)))
 			if err := broker.Load(context.Background()); err != nil {
 				t.Fatalf("Load() err = %v", err)
 			}
-			handler := newTelegramDecisionHandler(sender, router, broker, store)
+			handler := NewHandler(sender, router, broker, store)
 			if err := handler.ReconcileRestartLoadedDecisions(context.Background()); err != nil {
 				t.Fatalf("ReconcileRestartLoadedDecisions() err = %v", err)
 			}
@@ -155,7 +156,7 @@ func TestRestartReconciliationCleansArtifactDecisionForTerminalResumeIngress(t *
 				ChatID:          7,
 				SenderID:        42,
 				MessageID:       99,
-				IngressSurface:  telegramPrimaryIngressSurface,
+				IngressSurface:  telegramruntime.PrimaryIngressSurface,
 				IngressUpdateID: 9301,
 				Text:            "stale artifact message",
 				Artifacts: []core.Artifact{{
@@ -166,7 +167,7 @@ func TestRestartReconciliationCleansArtifactDecisionForTerminalResumeIngress(t *
 					Filename: "bundle.zip",
 				}},
 			}
-			ownerKey := telegramSessionOwnerKey(msg)
+			ownerKey := telegramruntime.SessionOwnerKey(msg)
 			raw, err := json.Marshal(msg)
 			if err != nil {
 				t.Fatalf("Marshal() err = %v", err)
@@ -185,8 +186,8 @@ func TestRestartReconciliationCleansArtifactDecisionForTerminalResumeIngress(t *
 			}
 			seedRestartLoadedPendingDecision(t, store, "old-artifact-terminal", ownerKey, msg, decision.KindArtifactRetention)
 			if err := store.RecordTelegramIngressTerminal(session.TelegramIngressUpdateRecord{
-				Surface:     telegramArtifactRetentionDecisionResumeIngressSurface,
-				UpdateID:    telegramDecisionResumeUpdateID(msg, telegramArtifactRetentionDecisionResumeIngressSurface),
+				Surface:     telegramruntime.ArtifactRetentionDecisionResumeIngressSurface,
+				UpdateID:    DecisionResumeUpdateID(msg, telegramruntime.ArtifactRetentionDecisionResumeIngressSurface),
 				UpdateKind:  "decision_resume_artifact_retention",
 				ChatID:      msg.ChatID,
 				SenderID:    msg.SenderID,
@@ -200,11 +201,11 @@ func TestRestartReconciliationCleansArtifactDecisionForTerminalResumeIngress(t *
 
 			sender := &decisionTestSender{}
 			router := &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}
-			broker := newTelegramDecisionBroker(sender, decision.WithDurableStore(newTelegramDecisionDurableStore(store)))
+			broker := NewBroker(sender, decision.WithDurableStore(NewDurableStore(store)))
 			if err := broker.Load(context.Background()); err != nil {
 				t.Fatalf("Load() err = %v", err)
 			}
-			handler := newTelegramDecisionHandler(sender, router, broker, store)
+			handler := NewHandler(sender, router, broker, store)
 			if err := handler.ReconcileRestartLoadedDecisions(context.Background()); err != nil {
 				t.Fatalf("ReconcileRestartLoadedDecisions() err = %v", err)
 			}

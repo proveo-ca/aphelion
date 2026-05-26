@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -17,6 +17,8 @@ import (
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/telegram"
 )
@@ -35,11 +37,11 @@ func TestResumePendingBusyDecisionRecordsSyntheticIngressAndClearsPending(t *tes
 		SenderID:         42,
 		MessageID:        99,
 		TelegramThreadID: 3,
-		IngressSurface:   telegramPrimaryIngressSurface,
+		IngressSurface:   telegramruntime.PrimaryIngressSurface,
 		IngressUpdateID:  701,
 		Text:             "next task",
 	}
-	ownerKey := telegramSessionOwnerKey(msg)
+	ownerKey := telegramruntime.SessionOwnerKey(msg)
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		t.Fatalf("Marshal() err = %v", err)
@@ -58,19 +60,19 @@ func TestResumePendingBusyDecisionRecordsSyntheticIngressAndClearsPending(t *tes
 	}
 
 	router := &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}
-	handler := newTelegramDecisionHandler(&decisionTestSender{}, router, decision.NewBroker(nil), store)
-	if err := handler.resumePendingBusyDecision(context.Background(), ownerKey, decision.Result{Choice: "queue"}); err != nil {
-		t.Fatalf("resumePendingBusyDecision() err = %v", err)
+	handler := NewHandler(&decisionTestSender{}, router, decision.NewBroker(nil), store)
+	if err := handler.ResumePendingBusyDecision(context.Background(), ownerKey, decision.Result{Choice: "queue"}); err != nil {
+		t.Fatalf("ResumePendingBusyDecision() err = %v", err)
 	}
 
 	if len(router.accepted) != 1 {
 		t.Fatalf("accepted = %#v, want one synthetic ingress route", router.accepted)
 	}
 	routed := router.accepted[0]
-	if routed.IngressSurface != telegramBusyDecisionResumeIngressSurface || routed.IngressUpdateID != 701 || routed.TelegramThreadID != 3 || routed.Text != "next task" {
+	if routed.IngressSurface != telegramruntime.BusyDecisionResumeIngressSurface || routed.IngressUpdateID != 701 || routed.TelegramThreadID != 3 || routed.Text != "next task" {
 		t.Fatalf("routed = %#v, want thread-scoped busy decision resume ingress", routed)
 	}
-	record, ok, err := store.TelegramIngressUpdate(telegramBusyDecisionResumeIngressSurface, 701)
+	record, ok, err := store.TelegramIngressUpdate(telegramruntime.BusyDecisionResumeIngressSurface, 701)
 	if err != nil || !ok {
 		t.Fatalf("TelegramIngressUpdate() ok=%t err=%v", ok, err)
 	}
@@ -95,11 +97,11 @@ func TestResumePendingBusyDecisionKeepsPendingWhenSyntheticRouteFails(t *testing
 		ChatID:          7,
 		SenderID:        42,
 		MessageID:       99,
-		IngressSurface:  telegramPrimaryIngressSurface,
+		IngressSurface:  telegramruntime.PrimaryIngressSurface,
 		IngressUpdateID: 702,
 		Text:            "next task",
 	}
-	ownerKey := telegramSessionOwnerKey(msg)
+	ownerKey := telegramruntime.SessionOwnerKey(msg)
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		t.Fatalf("Marshal() err = %v", err)
@@ -119,14 +121,14 @@ func TestResumePendingBusyDecisionKeepsPendingWhenSyntheticRouteFails(t *testing
 
 	routeErr := errors.New("route unavailable")
 	router := &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}, acceptedErr: routeErr}
-	handler := newTelegramDecisionHandler(&decisionTestSender{}, router, decision.NewBroker(nil), store)
-	if err := handler.resumePendingBusyDecision(context.Background(), ownerKey, decision.Result{Choice: "queue"}); !errors.Is(err, routeErr) {
-		t.Fatalf("resumePendingBusyDecision() err = %v, want route error", err)
+	handler := NewHandler(&decisionTestSender{}, router, decision.NewBroker(nil), store)
+	if err := handler.ResumePendingBusyDecision(context.Background(), ownerKey, decision.Result{Choice: "queue"}); !errors.Is(err, routeErr) {
+		t.Fatalf("ResumePendingBusyDecision() err = %v, want route error", err)
 	}
 	if _, err := store.PendingBusyDecision(ownerKey); err != nil {
 		t.Fatalf("PendingBusyDecision() err = %v, want pending row retained for retry", err)
 	}
-	record, ok, err := store.TelegramIngressUpdate(telegramBusyDecisionResumeIngressSurface, 702)
+	record, ok, err := store.TelegramIngressUpdate(telegramruntime.BusyDecisionResumeIngressSurface, 702)
 	if err != nil || !ok {
 		t.Fatalf("TelegramIngressUpdate() ok=%t err=%v", ok, err)
 	}
@@ -142,17 +144,17 @@ func TestRestartLoadedBusyDecisionCallbackResumesPendingMessage(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	durable := newTelegramDecisionDurableStore(store)
+	durable := NewDurableStore(store)
 	senderBeforeRestart := &decisionTestSender{}
-	brokerBeforeRestart := newTelegramDecisionBroker(senderBeforeRestart, decision.WithDurableStore(durable))
-	handlerBeforeRestart := newTelegramDecisionHandler(senderBeforeRestart, &decisionTestRouter{status: core.SessionStatus{Active: true}}, brokerBeforeRestart, store)
+	brokerBeforeRestart := NewBroker(senderBeforeRestart, decision.WithDurableStore(durable))
+	handlerBeforeRestart := NewHandler(senderBeforeRestart, &decisionTestRouter{status: core.SessionStatus{Active: true}}, brokerBeforeRestart, store)
 	handlerBeforeRestart.interruptTimeout = time.Hour
 
 	msg := core.InboundMessage{
 		ChatID:          7,
 		SenderID:        42,
 		MessageID:       99,
-		IngressSurface:  telegramPrimaryIngressSurface,
+		IngressSurface:  telegramruntime.PrimaryIngressSurface,
 		IngressUpdateID: 9001,
 		Text:            "queue this after restart",
 	}
@@ -167,7 +169,7 @@ func TestRestartLoadedBusyDecisionCallbackResumesPendingMessage(t *testing.T) {
 
 	senderAfterRestart := &decisionTestSender{}
 	routerAfterRestart := &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}
-	brokerAfterRestart := newTelegramDecisionBroker(senderAfterRestart, decision.WithDurableStore(durable))
+	brokerAfterRestart := NewBroker(senderAfterRestart, decision.WithDurableStore(durable))
 	if err := brokerAfterRestart.Load(context.Background()); err != nil {
 		t.Fatalf("Load() err = %v", err)
 	}
@@ -175,7 +177,7 @@ func TestRestartLoadedBusyDecisionCallbackResumesPendingMessage(t *testing.T) {
 	if !ok || !loaded.LoadedFromDurable {
 		t.Fatalf("loaded pending = %#v, ok=%t; want restart-loaded decision", loaded, ok)
 	}
-	handlerAfterRestart := newTelegramDecisionHandler(senderAfterRestart, routerAfterRestart, brokerAfterRestart, store)
+	handlerAfterRestart := NewHandler(senderAfterRestart, routerAfterRestart, brokerAfterRestart, store)
 
 	err = handlerAfterRestart.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:       "cb-restart-busy",
@@ -197,10 +199,10 @@ func TestRestartLoadedBusyDecisionCallbackResumesPendingMessage(t *testing.T) {
 		t.Fatalf("accepted = %#v, want one resumed synthetic ingress", routerAfterRestart.accepted)
 	}
 	routed := routerAfterRestart.accepted[0]
-	if routed.IngressSurface != telegramBusyDecisionResumeIngressSurface || routed.IngressUpdateID != 9001 || routed.Text != msg.Text {
+	if routed.IngressSurface != telegramruntime.BusyDecisionResumeIngressSurface || routed.IngressUpdateID != 9001 || routed.Text != msg.Text {
 		t.Fatalf("routed = %#v, want original busy message on synthetic surface", routed)
 	}
-	if _, err := store.PendingBusyDecision(telegramSessionOwnerKey(msg)); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := store.PendingBusyDecision(telegramruntime.SessionOwnerKey(msg)); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("PendingBusyDecision() err = %v, want cleared after restart callback resume", err)
 	}
 	records, err := store.PendingDecisions()
@@ -221,12 +223,12 @@ func TestRestartReconciliationReissuesLoadedBusyPrompt(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramPrimaryIngressSurface, IngressUpdateID: 9201, Text: "resume after restart"}
+	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramruntime.PrimaryIngressSurface, IngressUpdateID: 9201, Text: "resume after restart"}
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		t.Fatalf("Marshal() err = %v", err)
 	}
-	ownerKey := telegramSessionOwnerKey(msg)
+	ownerKey := telegramruntime.SessionOwnerKey(msg)
 	if err := store.UpsertPendingBusyDecision(session.PendingBusyDecisionRecord{
 		OwnerKey:           ownerKey,
 		ChatID:             msg.ChatID,
@@ -264,11 +266,11 @@ func TestRestartReconciliationReissuesLoadedBusyPrompt(t *testing.T) {
 	}
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender, decision.WithDurableStore(newTelegramDecisionDurableStore(store)))
+	broker := NewBroker(sender, decision.WithDurableStore(NewDurableStore(store)))
 	if err := broker.Load(context.Background()); err != nil {
 		t.Fatalf("Load() err = %v", err)
 	}
-	handler := newTelegramDecisionHandler(sender, &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}, broker, store)
+	handler := NewHandler(sender, &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}, broker, store)
 	handler.interruptTimeout = time.Hour
 	if err := handler.ReconcileRestartLoadedDecisions(context.Background()); err != nil {
 		t.Fatalf("ReconcileRestartLoadedDecisions() err = %v", err)
@@ -291,12 +293,12 @@ func TestRestartReconciliationAppliesExpiredBusyDefaultThroughSyntheticIngress(t
 	t.Cleanup(func() { _ = store.Close() })
 
 	createdAt := time.Now().UTC().Add(-time.Minute)
-	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramPrimaryIngressSurface, IngressUpdateID: 9301, Text: "expired busy message"}
+	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramruntime.PrimaryIngressSurface, IngressUpdateID: 9301, Text: "expired busy message"}
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		t.Fatalf("Marshal() err = %v", err)
 	}
-	ownerKey := telegramSessionOwnerKey(msg)
+	ownerKey := telegramruntime.SessionOwnerKey(msg)
 	if err := store.UpsertPendingBusyDecision(session.PendingBusyDecisionRecord{
 		OwnerKey:           ownerKey,
 		ChatID:             msg.ChatID,
@@ -313,7 +315,7 @@ func TestRestartReconciliationAppliesExpiredBusyDefaultThroughSyntheticIngress(t
 	}
 
 	router := &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}
-	handler := newTelegramDecisionHandler(&decisionTestSender{}, router, newTelegramDecisionBroker(&decisionTestSender{}, decision.WithDurableStore(newTelegramDecisionDurableStore(store))), store)
+	handler := NewHandler(&decisionTestSender{}, router, NewBroker(&decisionTestSender{}, decision.WithDurableStore(NewDurableStore(store))), store)
 	handler.interruptTimeout = time.Millisecond
 	if err := handler.ReconcileRestartLoadedDecisions(context.Background()); err != nil {
 		t.Fatalf("ReconcileRestartLoadedDecisions() err = %v", err)
@@ -321,7 +323,7 @@ func TestRestartReconciliationAppliesExpiredBusyDefaultThroughSyntheticIngress(t
 	if len(router.accepted) != 1 {
 		t.Fatalf("accepted = %#v, want expired default routed through synthetic ingress", router.accepted)
 	}
-	if router.accepted[0].IngressSurface != telegramBusyDecisionResumeIngressSurface || router.accepted[0].IngressUpdateID != 9301 {
+	if router.accepted[0].IngressSurface != telegramruntime.BusyDecisionResumeIngressSurface || router.accepted[0].IngressUpdateID != 9301 {
 		t.Fatalf("accepted[0] = %#v, want busy decision resume surface", router.accepted[0])
 	}
 	if _, err := store.PendingBusyDecision(ownerKey); !errors.Is(err, sql.ErrNoRows) {
@@ -336,12 +338,12 @@ func TestRestartReconciliationDetachesLoadedBusyPromptWhenResumeIngressOwnsWork(
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramPrimaryIngressSurface, IngressUpdateID: 9401, Text: "already accepted after callback"}
+	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, IngressSurface: telegramruntime.PrimaryIngressSurface, IngressUpdateID: 9401, Text: "already accepted after callback"}
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		t.Fatalf("Marshal() err = %v", err)
 	}
-	ownerKey := telegramSessionOwnerKey(msg)
+	ownerKey := telegramruntime.SessionOwnerKey(msg)
 	if err := store.UpsertPendingBusyDecision(session.PendingBusyDecisionRecord{
 		OwnerKey:           ownerKey,
 		ChatID:             msg.ChatID,
@@ -378,8 +380,8 @@ func TestRestartReconciliationDetachesLoadedBusyPromptWhenResumeIngressOwnsWork(
 		t.Fatalf("UpsertPendingDecision() err = %v", err)
 	}
 	if _, err := store.RecordTelegramIngressAccepted(session.TelegramIngressUpdateRecord{
-		Surface:     telegramBusyDecisionResumeIngressSurface,
-		UpdateID:    telegramDecisionResumeUpdateID(msg, telegramBusyDecisionResumeIngressSurface),
+		Surface:     telegramruntime.BusyDecisionResumeIngressSurface,
+		UpdateID:    DecisionResumeUpdateID(msg, telegramruntime.BusyDecisionResumeIngressSurface),
 		UpdateKind:  "decision_resume_busy",
 		ChatID:      msg.ChatID,
 		SenderID:    msg.SenderID,
@@ -393,11 +395,11 @@ func TestRestartReconciliationDetachesLoadedBusyPromptWhenResumeIngressOwnsWork(
 		t.Fatalf("RecordTelegramIngressAccepted() err = %v", err)
 	}
 
-	broker := newTelegramDecisionBroker(&decisionTestSender{}, decision.WithDurableStore(newTelegramDecisionDurableStore(store)))
+	broker := NewBroker(&decisionTestSender{}, decision.WithDurableStore(NewDurableStore(store)))
 	if err := broker.Load(context.Background()); err != nil {
 		t.Fatalf("Load() err = %v", err)
 	}
-	handler := newTelegramDecisionHandler(&decisionTestSender{}, &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}, broker, store)
+	handler := NewHandler(&decisionTestSender{}, &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{}}, broker, store)
 	if err := handler.ReconcileRestartLoadedDecisions(context.Background()); err != nil {
 		t.Fatalf("ReconcileRestartLoadedDecisions() err = %v", err)
 	}
@@ -425,8 +427,8 @@ func TestTelegramPollerBusyMessageCallbackStarvesBehindBlockingMessageHandler(t 
 	callbackHandledAt := time.Time{}
 	callbackDataReady := make(chan string, 1)
 	broker := decision.NewBroker(func(ctx context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
-		text := renderPendingDecisionSummary(pending)
-		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, inlineButtonRows(pending), replyToMessageID(pending.MessageID))
+		text := RenderPendingDecisionSummary(pending)
+		msgID, err := sender.SendInlineKeyboard(ctx, pending.ChatID, text, InlineButtonRows(pending), telegramcommands.ReplyToMessageID(pending.MessageID))
 		if err != nil {
 			return decision.Delivery{}, err
 		}
@@ -436,7 +438,7 @@ func TestTelegramPollerBusyMessageCallbackStarvesBehindBlockingMessageHandler(t 
 		}
 		return decision.Delivery{MessageID: msgID}, nil
 	})
-	handler := newTelegramDecisionHandler(sender, router, broker, store)
+	handler := NewHandler(sender, router, broker, store)
 	handler.interruptTimeout = 3 * time.Second
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -17,7 +17,7 @@ func TestHandleArtifactRetentionMessageAudioDefaultsToSessionAndOffersPermanentK
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
+	broker := NewBroker(sender)
 	router := &decisionTestRouter{}
 	store, err := session.NewSQLiteStore(t.TempDir() + "/sessions.db")
 	if err != nil {
@@ -25,7 +25,7 @@ func TestHandleArtifactRetentionMessageAudioDefaultsToSessionAndOffersPermanentK
 	}
 	defer store.Close()
 	keeper := &decisionTestArtifactKeeper{}
-	handler := newTelegramDecisionHandler(sender, router, broker, store, keeper)
+	handler := NewHandler(sender, router, broker, store, keeper)
 
 	msg := core.InboundMessage{
 		ChatID:    7,
@@ -82,7 +82,7 @@ func TestHandleAudioMessageAlwaysUsesAgentDecisionAndOnlyOffersPermanentKeep(t *
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
+	broker := NewBroker(sender)
 	router := &decisionTestRouter{}
 	store, err := session.NewSQLiteStore(t.TempDir() + "/sessions.db")
 	if err != nil {
@@ -90,7 +90,7 @@ func TestHandleAudioMessageAlwaysUsesAgentDecisionAndOnlyOffersPermanentKeep(t *
 	}
 	defer store.Close()
 	keeper := &decisionTestArtifactKeeper{}
-	handler := newTelegramDecisionHandler(sender, router, broker, store, keeper)
+	handler := NewHandler(sender, router, broker, store, keeper)
 
 	msg := core.InboundMessage{
 		ChatID:    7,
@@ -145,7 +145,7 @@ func TestHandleAudioKeepCallbackSavesWithoutReroutingTurn(t *testing.T) {
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
+	broker := NewBroker(sender)
 	router := &decisionTestRouter{}
 	store, err := session.NewSQLiteStore(t.TempDir() + "/sessions.db")
 	if err != nil {
@@ -153,7 +153,7 @@ func TestHandleAudioKeepCallbackSavesWithoutReroutingTurn(t *testing.T) {
 	}
 	defer store.Close()
 	keeper := &decisionTestArtifactKeeper{}
-	handler := newTelegramDecisionHandler(sender, router, broker, store, keeper)
+	handler := NewHandler(sender, router, broker, store, keeper)
 
 	msg := core.InboundMessage{
 		ChatID:    7,
@@ -209,7 +209,7 @@ func TestHandleImageMessageRoutesImmediatelyAndOffersPermanentKeep(t *testing.T)
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
+	broker := NewBroker(sender)
 	router := &decisionTestRouter{}
 	store, err := session.NewSQLiteStore(t.TempDir() + "/sessions.db")
 	if err != nil {
@@ -217,7 +217,7 @@ func TestHandleImageMessageRoutesImmediatelyAndOffersPermanentKeep(t *testing.T)
 	}
 	defer store.Close()
 	keeper := &decisionTestArtifactKeeper{}
-	handler := newTelegramDecisionHandler(sender, router, broker, store, keeper)
+	handler := NewHandler(sender, router, broker, store, keeper)
 
 	msg := core.InboundMessage{
 		ChatID:    7,
@@ -263,7 +263,7 @@ func TestHandleMixedAudioImageRoutesImmediatelyAndMarksAgentDecision(t *testing.
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
+	broker := NewBroker(sender)
 	router := &decisionTestRouter{}
 	store, err := session.NewSQLiteStore(t.TempDir() + "/sessions.db")
 	if err != nil {
@@ -271,7 +271,7 @@ func TestHandleMixedAudioImageRoutesImmediatelyAndMarksAgentDecision(t *testing.
 	}
 	defer store.Close()
 	keeper := &decisionTestArtifactKeeper{}
-	handler := newTelegramDecisionHandler(sender, router, broker, store, keeper)
+	handler := NewHandler(sender, router, broker, store, keeper)
 
 	msg := core.InboundMessage{
 		ChatID:    7,
@@ -400,7 +400,7 @@ func TestPermanentArtifactKeepSubjectButtonsStayCompact(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := permanentArtifactKeepSubject(core.InboundMessage{Artifacts: tt.artifacts}).Button
+			got := PermanentArtifactKeepSubject(core.InboundMessage{Artifacts: tt.artifacts}).Button
 			if got != tt.want {
 				t.Fatalf("button = %q, want %q", got, tt.want)
 			}
@@ -415,12 +415,12 @@ func TestDecisionButtonLabelsStayCompact(t *testing.T) {
 	t.Parallel()
 
 	labels := []string{
-		stopChoiceLabel("please interrupt"),
-		queueChoiceLabel("please interrupt"),
-		stopChoiceLabel("wait"),
-		queueChoiceLabel("wait"),
+		StopChoiceLabel("please interrupt"),
+		QueueChoiceLabel("please interrupt"),
+		StopChoiceLabel("wait"),
+		QueueChoiceLabel("wait"),
 	}
-	for _, choice := range artifactRetentionChoices() {
+	for _, choice := range ArtifactRetentionChoices() {
 		labels = append(labels, choice.Label)
 	}
 	for _, label := range labels {
@@ -434,7 +434,7 @@ func TestHandleTextDocumentRoutesImmediatelyWithoutBlockingSelector(t *testing.T
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
+	broker := NewBroker(sender)
 	router := &decisionTestRouter{}
 	store, err := session.NewSQLiteStore(t.TempDir() + "/sessions.db")
 	if err != nil {
@@ -442,7 +442,7 @@ func TestHandleTextDocumentRoutesImmediatelyWithoutBlockingSelector(t *testing.T
 	}
 	defer store.Close()
 	keeper := &decisionTestArtifactKeeper{}
-	handler := newTelegramDecisionHandler(sender, router, broker, store, keeper)
+	handler := NewHandler(sender, router, broker, store, keeper)
 
 	msg := core.InboundMessage{
 		ChatID:    7,
@@ -485,7 +485,7 @@ func TestHandleArtifactRetentionMessagePromptsAndRoutesChosenPolicy(t *testing.T
 	t.Parallel()
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
+	broker := NewBroker(sender)
 	go func() {
 		for i := 0; i < 100; i++ {
 			if len(sender.inline) > 0 && len(sender.inline[0].rows) > 0 {
@@ -503,7 +503,7 @@ func TestHandleArtifactRetentionMessagePromptsAndRoutesChosenPolicy(t *testing.T
 		}
 	}()
 	router := &decisionTestRouter{}
-	handler := newTelegramDecisionHandler(sender, router, broker, nil)
+	handler := NewHandler(sender, router, broker, nil)
 
 	msg := core.InboundMessage{
 		ChatID:    7,
@@ -559,8 +559,8 @@ func TestHandleArtifactRetentionMessageTimeoutDefaultsToSession(t *testing.T) {
 		return decision.Delivery{MessageID: 52}, nil
 	})
 	router := &decisionTestRouter{}
-	handler := newTelegramDecisionHandler(sender, router, broker, nil)
-	handler.artifactRetentionTimeout = 10 * time.Millisecond
+	handler := NewHandler(sender, router, broker, nil)
+	handler.SetArtifactRetentionTimeout(10 * time.Millisecond)
 
 	msg := core.InboundMessage{
 		ChatID:    8,

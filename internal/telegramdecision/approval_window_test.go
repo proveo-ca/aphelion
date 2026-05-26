@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -26,9 +26,9 @@ func TestTelegramExecApproverAddsApprovalWindowOfferToApprovedProposal(t *testin
 	t.Cleanup(func() { _ = store.Close() })
 
 	sender := &decisionTestSender{}
-	broker := newTelegramDecisionBroker(sender)
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, store)
-	approver := newTelegramExecApprover(sender, broker, execApprovalWindowOfferer{store: store})
+	broker := NewBroker(sender)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, store)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout, execApprovalWindowOfferer{store: store})
 	approver.SetTimeout(time.Second)
 
 	resultCh := make(chan toolpkg.ExecApprovalDecision, 1)
@@ -109,9 +109,9 @@ func TestTelegramExecApproverSendsApprovalWindowFallbackWhenEditFails(t *testing
 	t.Parallel()
 
 	sender := &decisionTestSender{editInlineErr: errors.New("telegram edit failed")}
-	broker := newTelegramDecisionBroker(sender)
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, nil)
-	approver := newTelegramExecApprover(sender, broker, execApprovalWindowOfferer{})
+	broker := NewBroker(sender)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, nil)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout, execApprovalWindowOfferer{})
 	approver.SetTimeout(time.Second)
 
 	resultCh := make(chan toolpkg.ExecApprovalDecision, 1)
@@ -190,13 +190,13 @@ func TestTelegramProposalPromptShowsApprovalWindowOfferAndThreadPrefix(t *testin
 
 	sender := &decisionTestSender{}
 	offerer := execApprovalWindowOfferer{store: store}
-	broker := newTelegramDecisionBrokerWithSummary(sender, nil, telegramDecisionBrokerUIOptions{
+	broker := NewBrokerWithSummaryAndUI(sender, nil, BrokerUIOptions{
 		ApprovalWindows: offerer,
 		ThreadResolver:  store,
 		ThreadRecorder:  store,
 	})
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, broker, store)
-	approver := newTelegramExecApprover(sender, broker, offerer)
+	handler := NewHandler(sender, &decisionTestRouter{}, broker, store)
+	approver := NewExecApprover(sender, broker, DefaultExecApprovalTimeout, offerer)
 	approver.SetPresentation(store)
 	approver.SetTimeout(time.Second)
 

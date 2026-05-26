@@ -16,6 +16,11 @@ import (
 	"github.com/idolum-ai/aphelion/telegram"
 )
 
+// Review-event callback handling intentionally remains in the root composition package.
+// Runtime owns review-event delivery, presentation, and inline button construction,
+// while the callback path must acknowledge Telegram callbacks and apply durable
+// session/capability/mission store transitions. Keeping this bridge here avoids
+// making internal/telegramdecision depend on runtime presentation ownership.
 func (h *telegramDecisionHandler) handleReviewEventCallback(ctx context.Context, cb telegram.CallbackQuery, eventID int64, action core.ReviewEventAction) error {
 	if h == nil || h.sender == nil || h.store == nil {
 		return nil

@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -21,7 +21,7 @@ func TestHandleBusyTelegramMessageQueuesMessageOnTimeout(t *testing.T) {
 	broker := decision.NewBroker(func(_ context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
 		return decision.Delivery{MessageID: 41}, nil
 	})
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{status: core.SessionStatus{Active: true}}, broker, nil)
+	handler := NewHandler(sender, &decisionTestRouter{status: core.SessionStatus{Active: true}}, broker, nil)
 	handler.interruptTimeout = 10 * time.Millisecond
 	handler.stopWordTimeout = 10 * time.Millisecond
 
@@ -79,7 +79,7 @@ func TestHandleBusyTelegramMessageQueueAckPreservesThreadDisplaySlot(t *testing.
 		return decision.Delivery{MessageID: 41}, nil
 	})
 	router := &decisionAcceptedTestRouter{decisionTestRouter: &decisionTestRouter{status: core.SessionStatus{Active: true}}}
-	handler := newTelegramDecisionHandler(sender, router, broker, store)
+	handler := NewHandler(sender, router, broker, store)
 	handler.interruptTimeout = time.Minute
 
 	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, TelegramThreadID: thread.ThreadID, Text: "next task"}
@@ -112,7 +112,7 @@ func TestHandleBusyTelegramMessageStopWordOnlyCancelsWithoutRouting(t *testing.T
 		return decision.Delivery{MessageID: 11}, nil
 	})
 	router := &decisionTestRouter{status: core.SessionStatus{Active: true}}
-	handler := newTelegramDecisionHandler(sender, router, broker, nil)
+	handler := NewHandler(sender, router, broker, nil)
 
 	handled, err := handler.HandleBusyMessage(context.Background(), core.InboundMessage{
 		ChatID:    7,
@@ -149,7 +149,7 @@ func TestHandleBusyTelegramMessageStopWordWithContentRoutesAfterStop(t *testing.
 		return decision.Delivery{MessageID: 22}, nil
 	})
 	router := &decisionTestRouter{status: core.SessionStatus{Active: true}}
-	handler := newTelegramDecisionHandler(sender, router, broker, nil)
+	handler := NewHandler(sender, router, broker, nil)
 
 	msg := core.InboundMessage{ChatID: 7, MessageID: 15, Text: "wait, do X instead"}
 	handled, err := handler.HandleBusyMessage(context.Background(), msg)
@@ -186,7 +186,7 @@ func TestHandleBusyTelegramMessageUsesStatusForMessageWhenAvailable(t *testing.T
 	broker := decision.NewBroker(func(_ context.Context, pending decision.PendingDecision) (decision.Delivery, error) {
 		return decision.Delivery{MessageID: 41}, nil
 	})
-	handler := newTelegramDecisionHandler(sender, router, broker, nil)
+	handler := NewHandler(sender, router, broker, nil)
 	handler.interruptTimeout = 10 * time.Millisecond
 	handler.stopWordTimeout = 10 * time.Millisecond
 
@@ -223,7 +223,7 @@ func TestHandleBusyTelegramMessageScopesPendingDecisionToThread(t *testing.T) {
 		return decision.Delivery{MessageID: 41}, nil
 	})
 	router := &decisionTestRouter{status: core.SessionStatus{Active: true}}
-	handler := newTelegramDecisionHandler(&decisionTestSender{}, router, broker, store)
+	handler := NewHandler(&decisionTestSender{}, router, broker, store)
 	handler.interruptTimeout = time.Minute
 
 	msg := core.InboundMessage{ChatID: 7, SenderID: 42, MessageID: 99, TelegramThreadID: 3, Text: "next task"}
@@ -272,7 +272,7 @@ func TestHandleBusyTelegramMessageUsesStopForMessageWhenAvailable(t *testing.T) 
 			return core.SessionStatus{Active: false}
 		},
 	}
-	handler := newTelegramDecisionHandler(sender, router, broker, nil)
+	handler := NewHandler(sender, router, broker, nil)
 
 	msg := core.InboundMessage{
 		ChatID:         7,
