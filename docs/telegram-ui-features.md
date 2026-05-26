@@ -79,6 +79,11 @@ Current command surface:
   - May offer a Mission Question card after an ordinary turn when typed mission evidence suggests the current work belongs with an existing mission or may be a new durable objective.
   - Mission Question prompts are cooldown-governed typed ledger rows. `Ask Me` queues one clarification turn; `Ignore` records the ignored association.
   - Self-summon is review-only; Mission Ledger state does not grant self-continuation, autonomous continuation, new capabilities, or external authority.
+- `/model`
+  - Admin-only model-routing board for configured model slots.
+  - Shows `Persona`, `Main`, `Health`, and `Children` slots.
+  - Slot selections stay active until changed again or cleared back to the configured default.
+  - OpenAI slots may expose `Fast`, which requests OpenAI's priority service tier. Other providers keep provider-default speed behavior.
 - Approval windows
   - Admin-only inline controls shown after an approval succeeds.
   - The approved message offers `Approve 15m` and `Close`.

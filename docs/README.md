@@ -12,6 +12,8 @@ architecture and requirements docs define the deeper contracts.
 | Give isolated work narrow internet access | [Sandbox Networking](guides/sandbox-networking.md) |
 | Set up durable child agents | [Durable Children](guides/durable-children.md) |
 | Learn the Telegram control surface | [Telegram Operations](guides/telegram-operations.md) |
+| Keep parallel work separated | [Telegram Operations: side threads](guides/telegram-operations.md#keep-parallel-requests-apart) |
+| Inspect context, memory, missions, and model routing | [Telegram Operations: work surfaces](guides/telegram-operations.md#manage-work-surfaces) |
 | Understand or contribute to the codebase | [Contributor Handbook](guides/contributor-handbook.md) |
 
 ## References
@@ -37,4 +39,6 @@ non-admin or durable profile needs explicit internet egress.
 
 Contributors should read the contributor handbook, then the design principles,
 package ownership map, and any requirements doc for the behavior they are
-changing.
+changing. Prompt or agency changes should also read the
+[agency evaluation methodology](architecture/agency-evaluation-methodology.md)
+before updating prompt contracts or eval expectations.

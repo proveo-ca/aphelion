@@ -57,7 +57,11 @@ policy.
 - **Service:** Linux user service through bundled install/update scripts
 - **Voice:** Telegram voice transcription and optional ElevenLabs TTS replies
 - **Automation:** heartbeat, cron, bounded auto-approval leases
-- **Credentials:** optional GitHub App installation-token checks for
+- **Work lanes:** main chat plus side threads for parallel work, each with its
+  own context, progress, approvals, and recovery state
+- **Context:** read-only context, memory, mission, and model-routing controls in
+  Telegram
+- **Credentials:** optional GitHub App status and installation-token helper for
   operator-maintained repository workflows
 - **Durable agents:** configured durable children, install-owned daily-review recipe, Telegram group
   admission, Tailnet child provisioning, health and inventory surfaces
@@ -108,8 +112,10 @@ systemctl --user status aphelion
 journalctl --user -u aphelion -f
 ```
 
-From Telegram, start with `/health`, `/status`, and `/help`. The reference for
-current commands and buttons is
+From Telegram, start with `/health`, `/status`, and `/help`. Use `/thread` when
+separate work should have its own lane, `/context` and `/memory` to inspect what
+is shaping replies, `/mission` for objective review, and `/model` for admin
+model-routing controls. The reference for current commands and buttons is
 [docs/telegram-ui-features.md](docs/telegram-ui-features.md).
 
 Isolated work defaults to no network. When a non-admin or durable profile needs
@@ -177,3 +183,7 @@ then run the full verification loop on Linux before merge.
 
 Run `make design-principles` when touching authority, consent, continuation,
 wake, goal, status, or operator-facing control surfaces.
+
+Run `make live-evals` or the narrower `make auto-evals` before releases that
+materially change agency, authority, proactive mission, or prompt behavior.
+These evals are opt-in because they spend provider API calls.
