@@ -2,6 +2,14 @@
 
 _Status: exploratory architecture direction._
 
+This document is not the current `/thread` or `/agents` user guide. Current
+operator behavior is documented in
+[Telegram Operations](../guides/telegram-operations.md) and
+[Telegram UI Features](../telegram-ui-features.md). This note records a
+possible future simplification: keep today's lightweight side-thread feel while
+letting an important lane grow durable-agent capabilities through explicit
+governed promotion.
+
 This note describes a possible simplification of Aphelion's durable child model:
 make the thread the operator-facing unit of durable work, and treat child-agent
 machinery as backing implementation only when a thread needs isolation, wake,

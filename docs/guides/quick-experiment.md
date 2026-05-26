@@ -59,6 +59,23 @@ The healthy path is simple: `/health` can show whether the service is ready,
 `/status` shows active and pending work, and `/help` shows the current command
 menu.
 
+## First Five Minutes
+
+Use the main chat for one thing at a time. When you want a separate work lane,
+start a side thread:
+
+```text
+/thread summarize this repo's install path
+```
+
+Side-thread replies are prefixed with `(thread N)`, and replies to those
+messages continue in that lane. Use `/threads` to see open lanes and `/absorb N`
+to close one after the outcome is no longer active.
+
+Use `/context` and `/memory` when you want to inspect what is shaping the next
+reply. Both are read-only by default. Use `/mission` to review objective
+candidates and `/model` as an admin surface for model-routing choices.
+
 ## First Safe Turn
 
 Start with a low-risk request, such as asking Aphelion to summarize its current

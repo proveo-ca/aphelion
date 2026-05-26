@@ -20,6 +20,19 @@ The full command and button reference is
 panel. `/status` shows chat state, pending work, active runs, and admin status
 views.
 
+## Common Workflows
+
+| Goal | Use |
+|---|---|
+| Check whether the service is ready | `/health`, then `/health trace` or `/health diagnose` when needed |
+| See active work and pending decisions | `/status` |
+| Keep a separate task from mixing with the main chat | `/thread <message>`, replies to that thread, then `/threads` |
+| Close a side lane after it is no longer active | `/absorb N` |
+| Inspect what is shaping replies | `/context` and `/memory` |
+| Review objective candidates | `/mission` |
+| Change model routing or OpenAI speed | `/model` |
+| Recover from stuck work | `/stop`, `/new`, `/detach`, then `/health` |
+
 ## Inspect Health
 
 Use `/health` first when you need to know whether Aphelion is ready.

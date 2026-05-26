@@ -107,6 +107,26 @@ manual credential-helper flow, use:
 This v1 does not inject GitHub credentials into ordinary shell or git
 execution. It makes the credential source typed, checkable, and ledgered first.
 
+## Post-Install Telegram Check
+
+After install or update, use Telegram to confirm the operator surface:
+
+```text
+/health
+/status
+/thread check this side lane
+/context
+/memory
+/mission
+/model
+```
+
+`/health` and `/status` show readiness and active work. `/thread` verifies that
+side lanes are attributable. `/context` and `/memory` should be read-only unless
+you explicitly answer a follow-up. `/mission` should show objective review
+state, and `/model` should show the configured admin model slots and any
+provider-specific speed controls.
+
 ## Deploy Gate
 
 The deploy path is always:

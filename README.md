@@ -1,26 +1,35 @@
 # Aphelion
 
-A minimal, governed outpost for personal agents.
+A governed outpost for personal agents.
 
 License: Apache-2.0.
 
-Aphelion is built for distance: distance from a laptop, distance across time,
-distance across trust boundaries, and distance between intention and action. It
-keeps a small Linux service reachable through Telegram, records authority and
-execution evidence as typed state, and gives the operator short paths to ask,
-act, stop, recover, and inspect what happened.
+Aphelion exists for the moment when a conversation has to touch the world: a
+file, a service, a memory, a machine far from the laptop. Before capability
+becomes action, Aphelion makes authority explicit. It keeps a Telegram radio
+link to a small Linux service, records consent and execution as typed evidence,
+and gives the operator short paths to ask, act, stop, recover, and inspect what
+happened.
+
+Aphelion is the harness, not the speaking identity. An agent may have a voice;
+Aphelion is the floor under that voice: the ledger, sandbox, service boundary,
+and recovery path that keep action honest.
 
 It is not a programming-only agent, an IDE, a generic assistant, a marketplace,
 or a broad channel platform.
 
 ## Principles
 
-- **Outpost, not platform.** Keep the system small, durable, and useful.
-- **Radio link, not omnichannel.** Telegram is the primary operator channel.
+- **Outpost, not platform.** Keep the system small enough to understand and
+  durable enough to trust.
+- **Radio link, not omnichannel.** Telegram is the primary operator channel; the
+  CLI and systemd remain the local repair tools.
 - **Ledger, not vibes.** Authority, consent, leases, grants, and evidence are
   records; text is presentation.
 - **Authority before capability.** The runtime should know what it is allowed to
   do before it becomes more capable.
+- **Short paths to truth.** If work touched the world, the system should be
+  able to say what happened, what was checked, and where uncertainty remains.
 - **Linux only.** Single target, single binary, no macOS or Windows support.
 
 The full design direction lives in
@@ -49,18 +58,26 @@ policy.
 
 ## Current Surface
 
-- **Channel:** Telegram
-- **Providers:** Anthropic, OpenAI, OpenRouter, Google Gemini, local Ollama
+The public surface is intentionally narrow:
+
+- **Channel:** Telegram radio link for live work, approvals, status, recovery,
+  and evidence.
+- **Providers:** Anthropic, OpenAI, OpenRouter, Google Gemini, local Ollama.
 - **Tools:** exec, scoped native file/search/fetch tools, curated memory,
-  session recall, optional OpenAI storage tools
-- **Storage:** SQLite sessions, file-based memory, execution evidence
-- **Service:** Linux user service through bundled install/update scripts
-- **Voice:** Telegram voice transcription and optional ElevenLabs TTS replies
-- **Automation:** heartbeat, cron, bounded auto-approval leases
-- **Credentials:** optional GitHub App installation-token checks for
-  operator-maintained repository workflows
-- **Durable agents:** configured durable children, install-owned daily-review recipe, Telegram group
-  admission, Tailnet child provisioning, health and inventory surfaces
+  session recall, optional OpenAI storage tools.
+- **Storage:** SQLite sessions, file-based memory, execution evidence.
+- **Service:** Linux user service through bundled install/update scripts.
+- **Voice:** Telegram voice transcription and optional ElevenLabs TTS replies.
+- **Automation:** heartbeat, cron, bounded auto-approval leases.
+- **Work lanes:** main chat plus side threads for parallel work, each with its
+  own context, progress, approvals, and recovery state.
+- **Inspection:** read-only `/context` and `/memory` panels, mission objective
+  review, and admin model-routing controls in Telegram.
+- **Credentials:** optional GitHub App status and installation-token helper for
+  operator-maintained repository workflows.
+- **Durable agents:** configured durable children, install-owned daily-review
+  recipe, Telegram group admission, Tailnet child provisioning, health and
+  inventory surfaces.
 
 Current promise tracking lives in [docs/promises.md](docs/promises.md).
 
@@ -93,10 +110,11 @@ approval grant together.
 
 ## Operate
 
-Aphelion has two operator surfaces:
+Operate Aphelion like a small radio room:
 
-- Telegram for live work, approvals, status, recovery, and evidence.
-- CLI/systemd for install, config checks, service lifecycle, and local repair.
+- Telegram is for live work, approvals, status, recovery, and evidence.
+- CLI/systemd are for install, config checks, service lifecycle, and local
+  repair.
 
 Useful gates:
 
@@ -108,8 +126,10 @@ systemctl --user status aphelion
 journalctl --user -u aphelion -f
 ```
 
-From Telegram, start with `/health`, `/status`, and `/help`. The reference for
-current commands and buttons is
+From Telegram, start with `/health`, `/status`, and `/help`. Use `/thread` when
+a second task needs its own lane. Use `/context` and `/memory` to inspect what is
+shaping replies. Use `/mission` for objective review and `/model` for admin
+model-routing controls. The reference for current commands and buttons is
 [docs/telegram-ui-features.md](docs/telegram-ui-features.md).
 
 Isolated work defaults to no network. When a non-admin or durable profile needs
@@ -177,3 +197,7 @@ then run the full verification loop on Linux before merge.
 
 Run `make design-principles` when touching authority, consent, continuation,
 wake, goal, status, or operator-facing control surfaces.
+
+Run `make live-evals` or the narrower `make auto-evals` before releases that
+materially change agency, authority, proactive mission, or prompt behavior.
+These evals are opt-in because they spend provider API calls.
