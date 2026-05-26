@@ -28,7 +28,7 @@ or a broad channel platform.
   records; text is presentation.
 - **Authority before capability.** The runtime should know what it is allowed to
   do before it becomes more capable.
-- **Evidence before closure.** If work touched the world, the system should be
+- **Short paths to truth.** If work touched the world, the system should be
   able to say what happened, what was checked, and where uncertainty remains.
 - **Linux only.** Single target, single binary, no macOS or Windows support.
 
