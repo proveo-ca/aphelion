@@ -7,7 +7,7 @@ License: Apache-2.0.
 Aphelion exists for the moment when a conversation has to touch the world: a
 file, a service, a memory, a machine far from the laptop. Before capability
 becomes action, Aphelion makes authority explicit. It keeps a Telegram radio
-link to a small Linux service, records consent and execution as typed evidence,
+link to a local Linux service, records consent and execution as typed evidence,
 and gives the operator short paths to ask, act, stop, recover, and inspect what
 happened.
 
@@ -20,8 +20,8 @@ or a broad channel platform.
 
 ## Principles
 
-- **Outpost, not platform.** Keep the system small enough to understand and
-  durable enough to trust.
+- **Outpost, not platform.** Keep the system legible enough to govern,
+  composable enough to understand under pressure, and durable enough to trust.
 - **Radio link, not omnichannel.** Telegram is the primary operator channel; the
   CLI and systemd remain the local repair tools.
 - **Ledger, not vibes.** Authority, consent, leases, grants, and evidence are
@@ -35,6 +35,13 @@ or a broad channel platform.
 The full design direction lives in
 [docs/architecture/design-principles.md](docs/architecture/design-principles.md).
 
+Aphelion is not small in the absolute sense. Its current surface includes
+channels, providers, tools, storage, service management, voice, automation, work
+lanes, inspection, credentials, durable agents, Tailnet and remote-host
+support, missions, and GitHub App helpers. The outpost constraint is therefore
+not minimal LOC or a tiny feature list. It is that every surface remains locally
+operable, authority-bounded, evidence-producing, and explainable without turning
+into a general agent marketplace or broad channel platform.
 
 ## Public Release Provenance
 

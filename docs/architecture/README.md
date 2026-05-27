@@ -28,7 +28,7 @@ These invariants are normative for architecture and requirements alignment:
 
 ## Normative Map
 
-- [design-principles.md](design-principles.md): project-level design principles for Aphelion as a minimal governed outpost.
+- [design-principles.md](design-principles.md): project-level design principles for Aphelion as a governed, locally operable outpost.
 - [influences-and-departures.md](influences-and-departures.md): attribution ledger for nearby systems, theory, and the points where Aphelion deliberately diverges.
 - [agency-evaluation-methodology.md](agency-evaluation-methodology.md): grounded behavioral methodology for measuring agency prompt quality, drift, and hard authority failures.
 - [principle-debt.md](principle-debt.md): active implementation gaps against the design principles.
