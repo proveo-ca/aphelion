@@ -4,7 +4,6 @@ package runtime
 
 import (
 	"context"
-	"time"
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/runtime/mission"
@@ -76,5 +75,3 @@ func (r *Runtime) MissionAskPrompt(ctx context.Context, senderID int64, promptID
 func (r *Runtime) ResolveMissionAskPrompt(ctx context.Context, senderID int64, promptID string, status session.MissionAskStatus, summary string) (session.MissionAskPrompt, error) {
 	return r.missionRuntime().ResolveMissionAskPrompt(ctx, senderID, promptID, status, summary)
 }
-
-func _missionRuntimeTime(_ time.Time) {}

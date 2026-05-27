@@ -12,39 +12,15 @@ import (
 	"github.com/idolum-ai/aphelion/telegram"
 )
 
-const (
-	defaultInterruptTimeout         = DefaultInterruptTimeout
-	defaultStopWordTimeout          = DefaultStopWordTimeout
-	defaultUserApprovalTimeout      = DefaultUserApprovalTimeout
-	defaultExecApprovalTimeout      = DefaultExecApprovalTimeout
-	defaultArtifactRetentionTimeout = DefaultArtifactRetentionTimeout
-	defaultMemoryDelegationTimeout  = DefaultMemoryDelegationTimeout
-	defaultSnapshotRestoreTimeout   = DefaultSnapshotRestoreTimeout
-)
-
-type telegramDecisionSender = DecisionSender
-type telegramDecisionKeyboardEditor = DecisionKeyboardEditor
-type telegramDecisionKeyboardClearer = DecisionKeyboardClearer
-type telegramDecisionRouter = Router
-type telegramDecisionMessageStatusRouter = MessageStatusRouter
-type telegramDecisionMessageStopRouter = MessageStopRouter
-type telegramPermanentArtifactKeeper = PermanentArtifactKeeper
-type telegramDecisionSummaryFunc = SummaryFunc
-type telegramDecisionBrokerUIOptions = BrokerUIOptions
-
 type DecisionHandler struct {
 	*Handler
-	sender                   telegramDecisionSender
+	sender                   DecisionSender
 	broker                   *decision.Broker
 	store                    *session.SQLiteStore
-	router                   telegramDecisionRouter
+	router                   Router
 	interruptTimeout         time.Duration
 	stopWordTimeout          time.Duration
 	artifactRetentionTimeout time.Duration
-}
-
-func editDecisionMessageClearingInlineKeyboard(ctx context.Context, sender telegramDecisionSender, chatID int64, messageID int64, text string) error {
-	return EditDecisionMessageClearingInlineKeyboard(ctx, sender, chatID, messageID, text)
 }
 
 func NewDecisionHandler(sender DecisionSender, router Router, broker *decision.Broker, store *session.SQLiteStore, keepers ...PermanentArtifactKeeper) *DecisionHandler {
@@ -55,21 +31,21 @@ func NewDecisionHandler(sender DecisionSender, router Router, broker *decision.B
 		broker:                   broker,
 		store:                    store,
 		router:                   router,
-		interruptTimeout:         defaultInterruptTimeout,
-		stopWordTimeout:          defaultStopWordTimeout,
-		artifactRetentionTimeout: defaultArtifactRetentionTimeout,
+		interruptTimeout:         DefaultInterruptTimeout,
+		stopWordTimeout:          DefaultStopWordTimeout,
+		artifactRetentionTimeout: DefaultArtifactRetentionTimeout,
 	}
 }
 
-func newTelegramDecisionHandler(sender telegramDecisionSender, router telegramDecisionRouter, broker *decision.Broker, store *session.SQLiteStore, keepers ...telegramPermanentArtifactKeeper) *DecisionHandler {
+func newDecisionHandlerForTest(sender DecisionSender, router Router, broker *decision.Broker, store *session.SQLiteStore, keepers ...PermanentArtifactKeeper) *DecisionHandler {
 	return NewDecisionHandler(sender, router, broker, store, keepers...)
 }
 
-func newTelegramDecisionBroker(sender telegramDecisionSender, opts ...decision.BrokerOption) *decision.Broker {
+func newDecisionBrokerForTest(sender DecisionSender, opts ...decision.BrokerOption) *decision.Broker {
 	return NewBroker(sender, opts...)
 }
 
-func newTelegramDecisionBrokerWithSummary(sender telegramDecisionSender, summarize telegramDecisionSummaryFunc, ui telegramDecisionBrokerUIOptions, opts ...decision.BrokerOption) *decision.Broker {
+func newDecisionBrokerWithSummaryForTest(sender DecisionSender, summarize SummaryFunc, ui BrokerUIOptions, opts ...decision.BrokerOption) *decision.Broker {
 	return NewBrokerWithSummaryAndUI(sender, summarize, ui, opts...)
 }
 
@@ -89,7 +65,7 @@ func (h *DecisionHandler) syncDecisionHandler() *Handler {
 	return h.Handler
 }
 
-func (h *DecisionHandler) SetRouter(router telegramDecisionRouter) {
+func (h *DecisionHandler) SetRouter(router Router) {
 	if h != nil {
 		h.router = router
 		if h.Handler != nil {

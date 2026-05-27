@@ -52,7 +52,7 @@ func TestMissionControlProposalAddCallbackCreatesCandidateOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertReviewEvent() err = %v", err)
 	}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
+	handler := newDecisionHandlerForTest(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
 	err = handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:      "cb-mission-add",
 		Data:    core.EncodeReviewEventCallbackData(eventID, core.ReviewEventActionMissionAdd),
@@ -102,7 +102,7 @@ func TestMissionControlProposalAskEditCallbackDoesNotCreateMission(t *testing.T)
 	if err != nil {
 		t.Fatalf("InsertReviewEvent() err = %v", err)
 	}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
+	handler := newDecisionHandlerForTest(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
 	err = handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:      "cb-mission-edit",
 		Data:    core.EncodeReviewEventCallbackData(eventID, core.ReviewEventActionMissionAskEdit),
@@ -152,7 +152,7 @@ func TestMissionControlProposalDetailCallbackRequiresTargetAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertReviewEvent() err = %v", err)
 	}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
+	handler := newDecisionHandlerForTest(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
 	err = handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:      "cb-mission-expand-denied",
 		Data:    core.EncodeReviewEventCallbackData(eventID, core.ReviewEventActionExpand),

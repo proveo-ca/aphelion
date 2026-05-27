@@ -14,9 +14,9 @@ import (
 	"github.com/idolum-ai/aphelion/telegram"
 )
 
-// These tests intentionally stay in package main because Review-event callbacks
-// are root composition glue implemented in telegram_decisions_review.go,
-// not internal Handler behavior.
+// These tests stay in package telegramdecision because review-event callback
+// behavior is owned by this boundary; root only assembles transport/control
+// dependencies and dispatches into it.
 func TestHandleReviewEventCallbackApprovesCapabilityRequest(t *testing.T) {
 	t.Parallel()
 
@@ -49,7 +49,7 @@ func TestHandleReviewEventCallbackApprovesCapabilityRequest(t *testing.T) {
 		t.Fatalf("InsertReviewEvent() err = %v", err)
 	}
 	sender := &decisionTestSender{}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
+	handler := newDecisionHandlerForTest(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
 	err = handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:      "cb-review-1",
 		From:    &telegram.User{ID: 1001},
@@ -111,7 +111,7 @@ func TestHandleReviewEventCallbackExpandAndHideIsReadOnly(t *testing.T) {
 		t.Fatalf("ReviewEventByID(before) err = %v", err)
 	}
 	sender := &decisionTestSender{}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
+	handler := newDecisionHandlerForTest(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
 
 	err = handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:      "cb-expand-review",
@@ -182,7 +182,7 @@ func TestHandleReviewEventCallbackExpandRequiresTargetReviewer(t *testing.T) {
 		t.Fatalf("InsertReviewEvent() err = %v", err)
 	}
 	sender := &decisionTestSender{}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
+	handler := newDecisionHandlerForTest(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
 
 	err = handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:      "cb-expand-review-denied",
@@ -234,7 +234,7 @@ func TestHandleReviewEventCallbackExpandAllowsCapabilityParent(t *testing.T) {
 		t.Fatalf("InsertReviewEvent() err = %v", err)
 	}
 	sender := &decisionTestSender{}
-	handler := newTelegramDecisionHandler(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
+	handler := newDecisionHandlerForTest(sender, &decisionTestRouter{}, decision.NewBroker(nil), store)
 
 	err = handler.HandleCallbackQuery(context.Background(), telegram.CallbackQuery{
 		ID:      "cb-expand-parent",

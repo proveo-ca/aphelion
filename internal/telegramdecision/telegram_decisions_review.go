@@ -338,11 +338,11 @@ func (h *DecisionHandler) handleReviewEventDetailToggle(ctx context.Context, cb 
 		text = formatReviewEventDetailsMessage(event)
 	}
 	rows := reviewEventInlineRowsExpanded(event, expanded)
-	if editor, ok := h.sender.(telegramDecisionKeyboardEditor); ok && len(rows) > 0 {
+	if editor, ok := h.sender.(DecisionKeyboardEditor); ok && len(rows) > 0 {
 		if err := editor.EditMessageTextWithInlineKeyboard(ctx, cb.Message.Chat.ID, cb.Message.MessageID, text, "", rows); err != nil {
 			return err
 		}
-	} else if err := editDecisionMessageClearingInlineKeyboard(ctx, h.sender, cb.Message.Chat.ID, cb.Message.MessageID, text); err != nil {
+	} else if err := EditDecisionMessageClearingInlineKeyboard(ctx, h.sender, cb.Message.Chat.ID, cb.Message.MessageID, text); err != nil {
 		return err
 	}
 	return h.answerReviewEventCallback(ctx, cb, "")
@@ -438,7 +438,7 @@ func (h *DecisionHandler) editReviewEventCallbackMessage(ctx context.Context, cb
 	if h == nil || h.sender == nil || cb.Message == nil || cb.Message.Chat == nil || cb.Message.MessageID == 0 {
 		return nil
 	}
-	return editDecisionMessageClearingInlineKeyboard(ctx, h.sender, cb.Message.Chat.ID, cb.Message.MessageID, text)
+	return EditDecisionMessageClearingInlineKeyboard(ctx, h.sender, cb.Message.Chat.ID, cb.Message.MessageID, text)
 }
 
 func reviewEventCallbackExpired(event session.ReviewEvent, now time.Time) bool {
@@ -449,7 +449,7 @@ func reviewEventCallbackExpired(event session.ReviewEvent, now time.Time) bool {
 	if start.IsZero() {
 		return false
 	}
-	return now.After(start.Add(defaultUserApprovalTimeout))
+	return now.After(start.Add(DefaultUserApprovalTimeout))
 }
 
 func reviewEventCallbackCapabilityRequestID(event session.ReviewEvent) string {

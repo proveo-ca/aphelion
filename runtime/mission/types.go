@@ -3,7 +3,6 @@
 package mission
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -123,8 +122,6 @@ func prefixTelegramPresentationText(prefix string, text string) string {
 func unavailableStoreError(subject string) error {
 	return fmt.Errorf("%s is unavailable: session store is not configured", subject)
 }
-
-func _keepContextImported(_ context.Context) {}
 
 func firstRuntimeNonEmpty(values ...string) string {
 	for _, value := range values {
