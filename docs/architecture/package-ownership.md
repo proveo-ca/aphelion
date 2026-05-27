@@ -8,9 +8,9 @@ The root package is the single-binary composition surface.
 
 - Owns CLI command dispatch, install/deploy entrypoints, and process startup.
 - Owns Telegram UI glue that adapts transport callbacks into runtime or decision
-  APIs. Review-event callback cards remain here because they bridge runtime
-  review-event presentation, Telegram callback acknowledgements, and durable
-  session/capability/mission store transitions.
+  APIs. Review-event Telegram decision callbacks are delegated to
+  `internal/telegramdecision`; root only assembles the transport/control
+  dependencies and dispatches into that boundary.
 - May import `runtime` and assemble concrete dependencies.
 - Should avoid owning durable domain behavior once a stable lower-level owner
   exists.
@@ -20,8 +20,7 @@ Code anchors:
 - [`main.go`](../../main.go)
 - [`commands.go`](../../commands.go)
 - [`maintenance.go`](../../maintenance.go)
-- [`telegram_decisions.go`](../../telegram_decisions.go)
-- [`telegram_decisions_review.go`](../../telegram_decisions_review.go)
+- [`internal/telegramdecision`](../../internal/telegramdecision) for review-event Telegram decision callback behavior.
 
 ## Runtime
 
