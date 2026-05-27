@@ -14,52 +14,7 @@ import (
 	"github.com/idolum-ai/aphelion/session"
 )
 
-const (
-	codexAppServerAdapterName     = "codex_app_server"
-	codexAppServerWakeChannel     = "codex_app_server"
-	codexAppServerMaxMessageBytes = int64(1 << 20)
-)
-
 var errCodexAppServerNoStatusEnvelope = errors.New("codex app-server turn did not return a durable child status envelope")
-
-type codexAppServerDoer interface {
-	Do(ctx context.Context, req codexAppServerRequest) (codexAppServerResult, error)
-}
-
-type codexAppServerRequest struct {
-	Agent        core.DurableAgent
-	Address      string
-	MemoryRoot   string
-	ThreadID     string
-	Prompt       string
-	Now          time.Time
-	StatusSchema string
-}
-
-type codexAppServerResult struct {
-	ThreadID       string
-	TurnID         string
-	Text           string
-	EnvelopeRaw    []byte
-	Envelope       core.DurableChildStatusEnvelope
-	PayloadHash    string
-	ApprovalLog    []codexAppServerApprovalDecision
-	CodexEvents    []session.WorkCodexEvent
-	PatchPreview   string
-	Notifications  int
-	Completed      bool
-	ArtifactRel    string
-	ArtifactSHA256 string
-}
-
-type codexAppServerApprovalDecision struct {
-	Method   string `json:"method"`
-	Decision string `json:"decision"`
-	Command  string `json:"command,omitempty"`
-	Reason   string `json:"reason,omitempty"`
-}
-
-type codexAppServerApprovalHandler func(method string, params map[string]any) codexAppServerApprovalDecision
 
 type codexAppServerWakeAdapter struct {
 	doer codexAppServerDoer

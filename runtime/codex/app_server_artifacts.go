@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package codex
 
 import (
 	"encoding/json"
@@ -13,13 +13,13 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 )
 
-type codexAppServerArtifactManifest struct {
-	AgentID   string                                `json:"agent_id"`
-	UpdatedAt time.Time                             `json:"updated_at"`
-	Artifacts []codexAppServerArtifactManifestEntry `json:"artifacts"`
+type ArtifactManifest struct {
+	AgentID   string                  `json:"agent_id"`
+	UpdatedAt time.Time               `json:"updated_at"`
+	Artifacts []ArtifactManifestEntry `json:"artifacts"`
 }
 
-type codexAppServerArtifactManifestEntry struct {
+type ArtifactManifestEntry struct {
 	Path      string    `json:"path"`
 	Kind      string    `json:"kind,omitempty"`
 	Source    string    `json:"source,omitempty"`
@@ -28,23 +28,23 @@ type codexAppServerArtifactManifestEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func loadCodexAppServerArtifactManifest(artifactRoot string, agentID string) (codexAppServerArtifactManifest, error) {
-	manifest := codexAppServerArtifactManifest{AgentID: strings.TrimSpace(agentID), Artifacts: []codexAppServerArtifactManifestEntry{}}
+func LoadArtifactManifest(artifactRoot string, agentID string) (ArtifactManifest, error) {
+	manifest := ArtifactManifest{AgentID: strings.TrimSpace(agentID), Artifacts: []ArtifactManifestEntry{}}
 	raw, err := os.ReadFile(filepath.Join(artifactRoot, "ARTIFACTS.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return manifest, nil
 		}
-		return codexAppServerArtifactManifest{}, fmt.Errorf("read durable agent artifact manifest: %w", err)
+		return ArtifactManifest{}, fmt.Errorf("read durable agent artifact manifest: %w", err)
 	}
 	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return codexAppServerArtifactManifest{}, fmt.Errorf("decode durable agent artifact manifest: %w", err)
+		return ArtifactManifest{}, fmt.Errorf("decode durable agent artifact manifest: %w", err)
 	}
 	manifest.AgentID = strings.TrimSpace(agentID)
 	return manifest, nil
 }
 
-func upsertCodexAppServerArtifactManifestEntry(manifest codexAppServerArtifactManifest, entry codexAppServerArtifactManifestEntry, updatedAt time.Time) codexAppServerArtifactManifest {
+func UpsertArtifactManifestEntry(manifest ArtifactManifest, entry ArtifactManifestEntry, updatedAt time.Time) ArtifactManifest {
 	for i := range manifest.Artifacts {
 		if manifest.Artifacts[i].Path == entry.Path {
 			manifest.Artifacts[i] = entry
@@ -57,7 +57,7 @@ func upsertCodexAppServerArtifactManifestEntry(manifest codexAppServerArtifactMa
 	return manifest
 }
 
-func writeCodexAppServerArtifactManifest(artifactRoot string, manifest codexAppServerArtifactManifest) error {
+func WriteArtifactManifest(artifactRoot string, manifest ArtifactManifest) error {
 	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
 		return err
 	}
@@ -69,11 +69,11 @@ func writeCodexAppServerArtifactManifest(artifactRoot string, manifest codexAppS
 	return os.WriteFile(filepath.Join(artifactRoot, "ARTIFACTS.json"), raw, 0o644)
 }
 
-func codexAppServerWakeSummary(agent core.DurableAgent, result codexAppServerResult, artifactRel string) string {
+func WakeSummary(agent core.DurableAgent, result Result, artifactRel string) string {
 	return strings.TrimSpace(fmt.Sprintf("codex_app_server heartbeat received for %s. thread_id=%s turn_id=%s payload_hash=%s artifact=%s", strings.TrimSpace(agent.AgentID), strings.TrimSpace(result.ThreadID), strings.TrimSpace(result.TurnID), firstNonEmpty(strings.TrimSpace(result.Envelope.PayloadHash), strings.TrimSpace(result.PayloadHash)), artifactRel))
 }
 
-func summarizeCodexApprovalDecisions(values []codexAppServerApprovalDecision) string {
+func SummarizeApprovalDecisions(values []ApprovalDecision) string {
 	if len(values) == 0 {
 		return "none"
 	}

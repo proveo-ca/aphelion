@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package codex
 
 import (
 	"bytes"
@@ -12,12 +12,18 @@ import (
 	"strings"
 )
 
-func codexAppServerBoolString(value bool) string {
+func BoolString(value bool) string {
 	if value {
 		return "true"
 	}
 	return "false"
 }
+
+func AsObject(value any) map[string]any { return asObject(value) }
+
+func StringField(obj map[string]any, key string) string { return stringField(obj, key) }
+
+func NestedString(obj map[string]any, keys ...string) string { return nestedString(obj, keys...) }
 
 func asObject(value any) map[string]any {
 	if value == nil {
@@ -115,7 +121,7 @@ func codexAppServerReadyURL(address string, suffix string) (string, error) {
 	return u.String(), nil
 }
 
-func checkCodexAppServerHTTP(ctx context.Context, address string, path string) error {
+func CheckHTTP(ctx context.Context, address string, path string) error {
 	target, err := codexAppServerReadyURL(address, path)
 	if err != nil {
 		return err

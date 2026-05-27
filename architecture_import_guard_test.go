@@ -60,11 +60,17 @@ func loadArchitecturePackages(t *testing.T) []architecturePackage {
 func assertRuntimeImportBoundary(t *testing.T, pkg architecturePackage) {
 	t.Helper()
 
+	runtimeRoot := aphelionModulePath + "/runtime"
 	if pkg.ImportPath == aphelionModulePath {
 		return
 	}
-	if importsPackage(pkg, aphelionModulePath+"/runtime") {
-		t.Fatalf("%s imports runtime; only the root composition package may import runtime", pkg.ImportPath)
+	for _, imported := range pkg.Imports {
+		if imported == runtimeRoot {
+			t.Fatalf("%s imports runtime; only the root composition package may import the runtime shell", pkg.ImportPath)
+		}
+		if strings.HasPrefix(imported, runtimeRoot+"/") && pkg.ImportPath != runtimeRoot {
+			t.Fatalf("%s imports runtime internals; only the runtime shell may import runtime leaf packages", pkg.ImportPath)
+		}
 	}
 }
 

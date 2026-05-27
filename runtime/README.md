@@ -48,6 +48,10 @@ Authoritative split for maintenance turns (heartbeat/cron/recovery):
 - `turn_coordinator_common.go`, `turn_coordinator_interactive.go`, `turn_coordinator_durable.go`: shared and species-specific coordinator adapters
 - `durable_wake.go`: pluggable durable wake ingress adapters and shared wake-turn substrate
 - `external_channel_runtime.go`: shared external-channel lifecycle helpers for poll due checks, command attempt/success/failure state, backoff, and adapter state containment
-- `codex_app_server_channel.go`: Codex app-server external-channel adapter for bounded read-only durable child status heartbeats
+- `codex_app_server_channel.go`: top-level wiring for the Codex app-server external-channel adapter; helper/client/artifact/work-event mechanics live in `runtime/codex/`
 - `durable_*.go`: durable-agent channel runtimes and channel adapters
 - `*_runtime_test.go`: runtime-domain integration suites (by concern)
+
+## Leaf Packages
+
+- `runtime/codex`: bounded Codex app-server helper package. It owns the app-server client, status prompt helpers, artifact manifest helpers, work-event projection helpers, and command-effect taxonomy used by the Codex work lane. Top-level `runtime` still owns durable-agent wake wiring, executor selection, lifecycle loops, and authority state integration.

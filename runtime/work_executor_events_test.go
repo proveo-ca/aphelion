@@ -97,7 +97,7 @@ func TestCodexAppServerClientRecordsServerRequestEvents(t *testing.T) {
 	t.Parallel()
 
 	client := newCodexAppServerClient("ws://127.0.0.1:1", codexWorkApprovalHandler(WorkRequest{Mode: WorkModeWorkspaceWrite}))
-	response := client.handleServerRequest("tool/requestUserInput", map[string]any{"prompt": "Pick a branch", "status": "pending"})
+	response := client.HandleServerRequest("tool/requestUserInput", map[string]any{"prompt": "Pick a branch", "status": "pending"})
 	if len(response) != 0 {
 		t.Fatalf("response = %#v, want empty safe response for unsupported user input request", response)
 	}

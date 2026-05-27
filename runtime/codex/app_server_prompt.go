@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package codex
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 )
 
-func codexThreadStartParams(req codexAppServerRequest) map[string]any {
+func codexThreadStartParams(req Request) map[string]any {
 	return map[string]any{
 		"baseInstructions":      codexAppServerBaseInstructions(req.Agent),
 		"developerInstructions": codexAppServerDeveloperInstructions(req.Agent),
@@ -34,6 +34,12 @@ func codexTurnStartParams() map[string]any {
 		"approvalPolicy": "on-request",
 		"sandbox":        "read-only",
 	}
+}
+
+func BaseInstructions(agent core.DurableAgent) string { return codexAppServerBaseInstructions(agent) }
+
+func DeveloperInstructions(agent core.DurableAgent) string {
+	return codexAppServerDeveloperInstructions(agent)
 }
 
 func codexAppServerBaseInstructions(agent core.DurableAgent) string {
@@ -66,7 +72,7 @@ func codexAppServerDeveloperInstructions(agent core.DurableAgent) string {
 - if a field cannot be collected safely, use an empty array or null and explain inside payload.collection_notes`, charter))
 }
 
-func codexAppServerStatusPrompt(agent core.DurableAgent, now time.Time) string {
+func StatusPrompt(agent core.DurableAgent, now time.Time) string {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}

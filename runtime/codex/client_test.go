@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package codex
 
 import (
 	"net/http"
@@ -11,9 +11,9 @@ import (
 func TestNewCodexHTTPClientDoesNotUseEndToEndTimeout(t *testing.T) {
 	t.Parallel()
 
-	client := newCodexHTTPClient(90 * time.Second)
+	client := NewHTTPClient(90 * time.Second)
 	if client == nil {
-		t.Fatal("newCodexHTTPClient() = nil")
+		t.Fatal("NewHTTPClient() = nil")
 	}
 	if client.Timeout != 0 {
 		t.Fatalf("client.Timeout = %v, want 0 for long-running Codex requests", client.Timeout)

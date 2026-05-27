@@ -42,6 +42,9 @@ Code anchors:
 - [`runtime/maintenance_turn_assembly.go`](../../runtime/maintenance_turn_assembly.go)
 - [`runtime/maintenance_turn.go`](../../runtime/maintenance_turn.go)
 - [`runtime/durable_group.go`](../../runtime/durable_group.go)
+- [`runtime/codex`](../../runtime/codex) for Codex app-server leaf helpers consumed only by the runtime shell.
+
+Runtime leaf subpackages may be imported by top-level `runtime` for bounded helper mechanics. They must not become new owners for ingress/session/lifecycle wiring or broad runtime policy.
 
 ## Turn
 
