@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -14,9 +14,8 @@ import (
 	"github.com/idolum-ai/aphelion/telegram"
 )
 
-// These tests intentionally stay in package main because Mission Control review-event callbacks
-// are root composition glue implemented in telegram_decisions_review.go,
-// not internal telegramdecision.Handler behavior.
+// These tests exercise the internal Telegram decision review-event bridge.
+// Review-event callbacks still coordinate runtime-rendered buttons with session store transitions.
 func TestMissionControlProposalAddCallbackCreatesCandidateOnly(t *testing.T) {
 	t.Parallel()
 

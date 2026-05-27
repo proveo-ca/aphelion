@@ -19,6 +19,7 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
 	"github.com/idolum-ai/aphelion/internal/telegramcontrol"
+	"github.com/idolum-ai/aphelion/internal/telegramdecision"
 	"github.com/idolum-ai/aphelion/memory"
 	"github.com/idolum-ai/aphelion/openai"
 	"github.com/idolum-ai/aphelion/principal"
@@ -240,20 +241,20 @@ func run() error {
 	router := core.NewRouter(rt.AgentFunc())
 	router.SetEventHandler(rt.RouterEventHandler())
 	ingress := telegramcontrol.NewIngressSequencer(router, turnTimeout)
-	decisionBroker := newTelegramDecisionBrokerWithSummary(
+	decisionBroker := telegramdecision.NewBrokerWithSummaryAndUI(
 		tgOutbound,
 		func(ctx context.Context, pending decision.PendingDecision) string {
 			if pending.Kind != decision.KindProposalApproval || rt == nil {
 				return ""
 			}
-			return rt.StatusReadableSummary(ctx, "approval", renderPendingDecisionExpanded(pending))
+			return rt.StatusReadableSummary(ctx, "approval", telegramdecision.RenderPendingDecisionExpanded(pending))
 		},
-		telegramDecisionBrokerUIOptions{
+		telegramdecision.BrokerUIOptions{
 			ApprovalWindows: rt,
 			ThreadResolver:  store,
 			ThreadRecorder:  store,
 		},
-		decision.WithDurableStore(newTelegramDecisionDurableStore(store)),
+		decision.WithDurableStore(telegramdecision.NewDurableStore(store)),
 		decision.WithObserver(rt.DecisionEventObserver()),
 		decision.WithAutoResolver(rt.AutoResolveDecision),
 	)
@@ -283,14 +284,14 @@ func run() error {
 		return fmt.Errorf("load pending decisions: %w", err)
 	}
 	cancelDecisionLoad()
-	decisionHandler := newTelegramDecisionHandler(tgOutbound, commandControl, decisionBroker, store, rt)
-	execApprover := newTelegramExecApprover(tgOutbound, decisionBroker, rt)
+	decisionHandler := telegramdecision.NewDecisionHandler(tgOutbound, commandControl, decisionBroker, store, rt)
+	execApprover := telegramdecision.NewExecApprover(tgOutbound, decisionBroker, telegramdecision.DefaultExecApprovalTimeout, rt)
 	execApprover.SetPresentation(store)
 	tools.WithExecApprover(execApprover)
-	memoryApprover := newTelegramDurableMemoryDelegationApprover(tgOutbound, decisionBroker)
+	memoryApprover := telegramdecision.NewDurableMemoryDelegationApprover(tgOutbound, decisionBroker, telegramdecision.DefaultMemoryDelegationTimeout)
 	memoryApprover.SetPresentation(store)
 	tools.WithDurableMemoryDelegationApprover(memoryApprover)
-	snapshotApprover := newTelegramDurableSnapshotRestoreApprover(tgOutbound, decisionBroker)
+	snapshotApprover := telegramdecision.NewDurableSnapshotRestoreApprover(tgOutbound, decisionBroker, telegramdecision.DefaultSnapshotRestoreTimeout)
 	snapshotApprover.SetPresentation(store)
 	tools.WithDurableSnapshotRestoreApprover(snapshotApprover)
 
@@ -391,13 +392,13 @@ func run() error {
 		telegram.WithIngressSurface(telegramPrimaryIngressSurface),
 		telegram.WithCallbackHandler(func(parent context.Context, cb telegram.CallbackQuery) error {
 			if handled, err := handleTelegramCommandCallback(parent, tgOutbound, commandControl, cb); err != nil {
-				commandControl.RecordTelegramCallbackError(callbackChatID(cb), "command", err)
+				commandControl.RecordTelegramCallbackError(telegramdecision.CallbackChatID(cb), "command", err)
 				return err
 			} else if handled {
 				return nil
 			}
 			if err := decisionHandler.HandleCallbackQuery(parent, cb); err != nil {
-				commandControl.RecordTelegramCallbackError(callbackChatID(cb), "decision", err)
+				commandControl.RecordTelegramCallbackError(telegramdecision.CallbackChatID(cb), "decision", err)
 				return err
 			}
 			return nil

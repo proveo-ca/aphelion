@@ -1,27 +1,26 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/principal"
-	runtimepkg "github.com/idolum-ai/aphelion/runtime"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/telegram"
 )
 
-// Review-event callback handling intentionally remains in the root composition package.
-// Runtime owns review-event delivery, presentation, and inline button construction,
-// while the callback path must acknowledge Telegram callbacks and apply durable
-// session/capability/mission store transitions. Keeping this bridge here avoids
-// making internal/telegramdecision depend on runtime presentation ownership.
-func (h *telegramDecisionHandler) handleReviewEventCallback(ctx context.Context, cb telegram.CallbackQuery, eventID int64, action core.ReviewEventAction) error {
+// Review-event callback handling lives with Telegram decision handling, while
+// runtime still owns review-event delivery, presentation, and inline button
+// construction. The callback path acknowledges Telegram callbacks and applies
+// durable session/capability/mission store transitions.
+func (h *DecisionHandler) handleReviewEventCallback(ctx context.Context, cb telegram.CallbackQuery, eventID int64, action core.ReviewEventAction) error {
 	if h == nil || h.sender == nil || h.store == nil {
 		return nil
 	}
@@ -95,7 +94,7 @@ func (h *telegramDecisionHandler) handleReviewEventCallback(ctx context.Context,
 	return h.answerReviewEventCallback(ctx, cb, "")
 }
 
-func (h *telegramDecisionHandler) handleMissionControlProposalCallback(ctx context.Context, cb telegram.CallbackQuery, event session.ReviewEvent, proposal core.MissionControlProposal, action core.ReviewEventAction) error {
+func (h *DecisionHandler) handleMissionControlProposalCallback(ctx context.Context, cb telegram.CallbackQuery, event session.ReviewEvent, proposal core.MissionControlProposal, action core.ReviewEventAction) error {
 	if h == nil || h.store == nil {
 		return nil
 	}
@@ -194,18 +193,151 @@ func firstTelegramDecisionNonEmpty(values ...string) string {
 	return ""
 }
 
-func (h *telegramDecisionHandler) handleReviewEventDetailToggle(ctx context.Context, cb telegram.CallbackQuery, event session.ReviewEvent, expanded bool) error {
-	if !runtimepkg.ReviewEventDetailsExpandable(event) {
+type reviewEventArtifactMetadata struct {
+	AgentID       string            `json:"agent_id"`
+	Summary       string            `json:"summary"`
+	IntervalLabel string            `json:"interval_label"`
+	LocalActions  []string          `json:"local_actions"`
+	Questions     []string          `json:"questions"`
+	RiskFlags     []string          `json:"risk_flags"`
+	ArtifactRefs  []string          `json:"artifact_refs"`
+	Metadata      map[string]string `json:"metadata"`
+}
+
+func reviewEventDetailsExpandable(event session.ReviewEvent) bool {
+	if _, ok := core.MissionControlProposalFromMetadataJSON(event.MetadataJSON); ok {
+		return false
+	}
+	if strings.TrimSpace(event.Summary) == "" {
+		return false
+	}
+	scope := session.NormalizeScopeRef(event.SourceScope)
+	return scope.Kind == session.ScopeKindDurableAgent || strings.TrimSpace(scope.DurableAgentID) != "" || strings.TrimSpace(event.SourceRole) == "durable_agent"
+}
+
+func reviewEventInlineRowsExpanded(event session.ReviewEvent, expanded bool) [][]telegram.InlineButton {
+	if _, ok := core.MissionControlProposalFromMetadataJSON(event.MetadataJSON); ok {
+		return [][]telegram.InlineButton{{
+			{Text: "Reject", CallbackData: core.EncodeReviewEventCallbackData(event.ID, core.ReviewEventActionMissionReject)},
+			{Text: "Add mission", CallbackData: core.EncodeReviewEventCallbackData(event.ID, core.ReviewEventActionMissionAdd)},
+		}, {
+			{Text: "Park", CallbackData: core.EncodeReviewEventCallbackData(event.ID, core.ReviewEventActionMissionPark)},
+			{Text: "Change", CallbackData: core.EncodeReviewEventCallbackData(event.ID, core.ReviewEventActionMissionAskEdit)},
+		}}
+	}
+	rows := [][]telegram.InlineButton{}
+	if reviewEventDetailsExpandable(event) {
+		action := core.ReviewEventActionExpand
+		label := "Details"
+		if expanded {
+			action = core.ReviewEventActionHide
+			label = "Hide details"
+		}
+		rows = append(rows, []telegram.InlineButton{{Text: label, CallbackData: core.EncodeReviewEventCallbackData(event.ID, action)}})
+	}
+	requestID := reviewEventCallbackCapabilityRequestID(event)
+	if requestID == "" {
+		return rows
+	}
+	if reviewEventCallbackMetadataString(event, "parent_principal") != "" && reviewEventCallbackMetadataString(event, "review_status") == string(session.CapabilityReviewStatusProposed) {
+		rows = append(rows, []telegram.InlineButton{{Text: "Parent approve", CallbackData: core.EncodeReviewEventCallbackData(event.ID, core.ReviewEventActionParentApprove)}})
+	}
+	rows = append(rows, []telegram.InlineButton{
+		{Text: "Reject", CallbackData: core.EncodeReviewEventCallbackData(event.ID, core.ReviewEventActionReject)},
+		{Text: "Approve", CallbackData: core.EncodeReviewEventCallbackData(event.ID, core.ReviewEventActionApprove)},
+	})
+	return rows
+}
+
+func formatReviewEventCompactMessage(event session.ReviewEvent) string {
+	if proposal, ok := core.MissionControlProposalFromMetadataJSON(event.MetadataJSON); ok {
+		proposal = core.NormalizeMissionControlProposal(proposal)
+		return strings.TrimSpace("Mission Control proposal\n" + proposal.Title + "\n" + proposal.Objective)
+	}
+	meta, _ := parseReviewEventArtifactMetadata(event)
+	title := "Review"
+	if agent := strings.TrimSpace(meta.AgentID); agent != "" {
+		title = "Review: " + agent
+	} else if scope := session.NormalizeScopeRef(event.SourceScope); strings.TrimSpace(scope.DurableAgentID) != "" {
+		title = "Review: " + strings.TrimSpace(scope.DurableAgentID)
+	}
+	lines := []string{"**" + title + "**"}
+	if summary := strings.TrimSpace(meta.Summary); summary != "" {
+		lines = append(lines, "", "**Summary**", summary)
+	} else if summary := strings.TrimSpace(event.Summary); summary != "" {
+		lines = append(lines, "", "**Summary**", summary)
+	}
+	if len(meta.LocalActions) > 0 {
+		lines = append(lines, "", "**Key points**")
+		for _, action := range meta.LocalActions {
+			if action = strings.TrimSpace(action); action != "" {
+				lines = append(lines, "- "+action)
+			}
+		}
+	}
+	lines = append(lines, "", "Details has the full child update.")
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func formatReviewEventDetailsMessage(event session.ReviewEvent) string {
+	meta, ok := parseReviewEventArtifactMetadata(event)
+	lines := []string{strings.TrimSpace(event.Summary)}
+	if lines[0] == "" {
+		lines[0] = "Review event details."
+	}
+	if ok && len(meta.ArtifactRefs) > 0 {
+		lines = append(lines, "", "**Artifacts**")
+		for _, ref := range meta.ArtifactRefs {
+			if ref = strings.TrimSpace(ref); ref != "" {
+				lines = append(lines, "- "+ref)
+			}
+		}
+	}
+	if ok && len(meta.Metadata) > 0 {
+		keys := make([]string, 0, len(meta.Metadata))
+		for key := range meta.Metadata {
+			if strings.TrimSpace(key) != "" {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		if len(keys) > 0 {
+			lines = append(lines, "", "**Metadata**")
+			for _, key := range keys {
+				value := strings.TrimSpace(meta.Metadata[key])
+				if value != "" {
+					lines = append(lines, "- "+key+": "+value)
+				}
+			}
+		}
+	}
+	lines = append(lines, "", "Use Hide details to return to the compact summary.")
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func parseReviewEventArtifactMetadata(event session.ReviewEvent) (reviewEventArtifactMetadata, bool) {
+	var meta reviewEventArtifactMetadata
+	if strings.TrimSpace(event.MetadataJSON) == "" {
+		return meta, false
+	}
+	if err := json.Unmarshal([]byte(event.MetadataJSON), &meta); err != nil {
+		return reviewEventArtifactMetadata{}, false
+	}
+	return meta, true
+}
+
+func (h *DecisionHandler) handleReviewEventDetailToggle(ctx context.Context, cb telegram.CallbackQuery, event session.ReviewEvent, expanded bool) error {
+	if !reviewEventDetailsExpandable(event) {
 		return h.answerReviewEventCallback(ctx, cb, "This review item has no expandable details.")
 	}
 	if h == nil || h.sender == nil || cb.Message == nil || cb.Message.Chat == nil || cb.Message.MessageID == 0 {
 		return h.answerReviewEventCallback(ctx, cb, "")
 	}
-	text := runtimepkg.FormatReviewEventCompactMessage(event)
+	text := formatReviewEventCompactMessage(event)
 	if expanded {
-		text = runtimepkg.FormatReviewEventDetailsMessage(event)
+		text = formatReviewEventDetailsMessage(event)
 	}
-	rows := runtimepkg.ReviewEventInlineRowsExpanded(event, expanded)
+	rows := reviewEventInlineRowsExpanded(event, expanded)
 	if editor, ok := h.sender.(telegramDecisionKeyboardEditor); ok && len(rows) > 0 {
 		if err := editor.EditMessageTextWithInlineKeyboard(ctx, cb.Message.Chat.ID, cb.Message.MessageID, text, "", rows); err != nil {
 			return err
@@ -216,7 +348,7 @@ func (h *telegramDecisionHandler) handleReviewEventDetailToggle(ctx context.Cont
 	return h.answerReviewEventCallback(ctx, cb, "")
 }
 
-func (h *telegramDecisionHandler) reviewEventDetailAuthorizationFailure(event session.ReviewEvent, cb telegram.CallbackQuery) (string, error) {
+func (h *DecisionHandler) reviewEventDetailAuthorizationFailure(event session.ReviewEvent, cb telegram.CallbackQuery) (string, error) {
 	fromID := callbackSenderID(cb)
 	if fromID <= 0 {
 		return "Only the target reviewer can view these review details.", nil
@@ -292,7 +424,7 @@ func reviewEventConfirmationText(label string, record session.CapabilityRequest,
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func (h *telegramDecisionHandler) answerReviewEventCallback(ctx context.Context, cb telegram.CallbackQuery, text string) error {
+func (h *DecisionHandler) answerReviewEventCallback(ctx context.Context, cb telegram.CallbackQuery, text string) error {
 	if h == nil || h.sender == nil {
 		return nil
 	}
@@ -302,7 +434,7 @@ func (h *telegramDecisionHandler) answerReviewEventCallback(ctx context.Context,
 	return nil
 }
 
-func (h *telegramDecisionHandler) editReviewEventCallbackMessage(ctx context.Context, cb telegram.CallbackQuery, text string) error {
+func (h *DecisionHandler) editReviewEventCallbackMessage(ctx context.Context, cb telegram.CallbackQuery, text string) error {
 	if h == nil || h.sender == nil || cb.Message == nil || cb.Message.Chat == nil || cb.Message.MessageID == 0 {
 		return nil
 	}

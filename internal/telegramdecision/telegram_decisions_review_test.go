@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package telegramdecision
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 // These tests intentionally stay in package main because Review-event callbacks
 // are root composition glue implemented in telegram_decisions_review.go,
-// not internal telegramdecision.Handler behavior.
+// not internal Handler behavior.
 func TestHandleReviewEventCallbackApprovesCapabilityRequest(t *testing.T) {
 	t.Parallel()
 

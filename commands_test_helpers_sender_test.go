@@ -99,6 +99,10 @@ func (s *stubCommandSender) EditMessageTextWithInlineKeyboard(_ context.Context,
 	return s.editErr
 }
 
+func (s *stubCommandSender) DeleteMessage(_ context.Context, chatID int64, messageID int64) error {
+	return nil
+}
+
 func (s *stubCommandSender) AnswerCallbackQuery(_ context.Context, id string, text string) error {
 	if s.order != nil {
 		*s.order = append(*s.order, "answer:"+text)

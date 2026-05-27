@@ -10,6 +10,7 @@ import (
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/telegramdecision"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/telegram"
 )
@@ -174,7 +175,7 @@ func TestThreadPrefixTargetsBusyDecisionLane(t *testing.T) {
 		t.Fatal("handled = true, want busy gate to see retargeted side-thread message")
 	}
 
-	router := &decisionTestRouter{
+	router := &threadBusyDecisionRouter{
 		statusForMessageFn: func(msg core.InboundMessage) core.SessionStatus {
 			if msg.TelegramThreadID != 3 {
 				t.Fatalf("StatusForMessage() msg = %#v, want thread 3", msg)
@@ -188,7 +189,7 @@ func TestThreadPrefixTargetsBusyDecisionLane(t *testing.T) {
 		}
 		return decision.AutoResolution{Choice: "queue", Reason: "test"}, nil
 	}))
-	handler := newTelegramDecisionHandler(&decisionTestSender{}, router, broker, nil)
+	handler := telegramdecision.NewHandler(sender, router, broker, nil)
 	busyHandled, err := handler.HandleBusyMessage(context.Background(), routed)
 	if err != nil {
 		t.Fatalf("HandleBusyMessage() err = %v", err)
@@ -199,6 +200,30 @@ func TestThreadPrefixTargetsBusyDecisionLane(t *testing.T) {
 	if len(router.routed) != 1 || router.routed[0].TelegramThreadID != 3 || router.routed[0].Text != "next task" {
 		t.Fatalf("routed = %#v, want queued side-thread work after busy decision", router.routed)
 	}
+}
+
+type threadBusyDecisionRouter struct {
+	statusForMessageFn func(core.InboundMessage) core.SessionStatus
+	routed             []core.InboundMessage
+}
+
+func (r *threadBusyDecisionRouter) Status(chatID int64) core.SessionStatus {
+	return core.SessionStatus{}
+}
+
+func (r *threadBusyDecisionRouter) StatusForMessage(msg core.InboundMessage) core.SessionStatus {
+	if r.statusForMessageFn != nil {
+		return r.statusForMessageFn(msg)
+	}
+	return core.SessionStatus{}
+}
+
+func (r *threadBusyDecisionRouter) Stop(chatID int64) core.StopResult {
+	return core.StopResult{}
+}
+
+func (r *threadBusyDecisionRouter) Route(_ context.Context, msg core.InboundMessage) {
+	r.routed = append(r.routed, msg)
 }
 
 func TestThreadPrefixCanTargetLaneCommand(t *testing.T) {
