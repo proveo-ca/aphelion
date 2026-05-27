@@ -4,33 +4,31 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/durableagent"
+	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
 	"github.com/idolum-ai/aphelion/session"
 )
 
-var errCodexAppServerNoStatusEnvelope = errors.New("codex app-server turn did not return a durable child status envelope")
-
 type codexAppServerWakeAdapter struct {
-	doer codexAppServerDoer
+	doer runtimecodex.Doer
 }
 
 func newCodexAppServerWakeAdapter() durableWakeIngressAdapter {
-	return &codexAppServerWakeAdapter{doer: realCodexAppServerDoer{}}
+	return &codexAppServerWakeAdapter{doer: runtimecodex.RealAppServerDoer{}}
 }
 
-func (a *codexAppServerWakeAdapter) Name() string { return codexAppServerAdapterName }
+func (a *codexAppServerWakeAdapter) Name() string { return runtimecodex.AdapterName }
 
 func (a *codexAppServerWakeAdapter) Supports(agent core.DurableAgent) bool {
 	if strings.ToLower(strings.TrimSpace(agent.Status)) != "active" {
 		return false
 	}
-	if externalChannelAdapter(agent) != codexAppServerAdapterName {
+	if externalChannelAdapter(agent) != runtimecodex.AdapterName {
 		return false
 	}
 	mode := strings.TrimSpace(agent.WakeupMode)
@@ -58,7 +56,7 @@ func (a *codexAppServerWakeAdapter) Prepare(ctx context.Context, rt *Runtime, ag
 	if err != nil {
 		return nil, err
 	}
-	runtimeState := externalChannelStateForAdapter(continuity, codexAppServerAdapterName)
+	runtimeState := externalChannelStateForAdapter(continuity, runtimecodex.AdapterName)
 	codexState := decodeCodexAdapterState(runtimeState.AdapterState)
 	if !externalChannelPollDue(runtimeState, strings.TrimSpace(external.PollInterval), now) {
 		return nil, nil
@@ -76,10 +74,10 @@ func (a *codexAppServerWakeAdapter) Prepare(ctx context.Context, rt *Runtime, ag
 
 	doer := a.doer
 	if doer == nil {
-		doer = realCodexAppServerDoer{}
+		doer = runtimecodex.RealAppServerDoer{}
 	}
-	prompt := codexAppServerStatusPrompt(agent, now)
-	result, err := doer.Do(ctx, codexAppServerRequest{
+	prompt := runtimecodex.StatusPrompt(agent, now)
+	result, err := doer.Do(ctx, runtimecodex.Request{
 		Agent:        agent,
 		Address:      address,
 		MemoryRoot:   memoryRoot,
@@ -109,8 +107,8 @@ func (a *codexAppServerWakeAdapter) Prepare(ctx context.Context, rt *Runtime, ag
 	codexState.LastTurnID = strings.TrimSpace(result.TurnID)
 	codexState.LastPayloadHash = firstNonEmpty(strings.TrimSpace(result.Envelope.PayloadHash), strings.TrimSpace(result.PayloadHash))
 	runtimeState = externalChannelRecordSuccess(runtimeState, externalChannelCommandLifecycle{
-		Adapter:      codexAppServerAdapterName,
-		Command:      codexAppServerStatusCommandName,
+		Adapter:      runtimecodex.AdapterName,
+		Command:      runtimecodex.StatusCommandName,
 		SessionRef:   strings.TrimSpace(result.ThreadID),
 		LastArtifact: artifactRel,
 		LastStatus:   "ok",
@@ -127,14 +125,14 @@ func (a *codexAppServerWakeAdapter) Prepare(ctx context.Context, rt *Runtime, ag
 	}
 
 	key := session.SessionKey{ChatID: durableWakeSyntheticChatID(agent.AgentID), Scope: durableAgentScopeRef(agent)}
-	summary := codexAppServerWakeSummary(agent, result, artifactRel)
+	summary := runtimecodex.WakeSummary(agent, result, artifactRel)
 	return &durableWakeTurnPlan{
-		Channel:      codexAppServerWakeChannel,
-		AuditChannel: codexAppServerWakeChannel,
+		Channel:      runtimecodex.WakeChannel,
+		AuditChannel: runtimecodex.WakeChannel,
 		Key:          key,
 		Inbound: core.InboundMessage{
 			ChatID:         key.ChatID,
-			ChatType:       codexAppServerWakeChannel,
+			ChatType:       runtimecodex.WakeChannel,
 			ChatTitle:      "codex-app-server",
 			SenderName:     "codex_app_server",
 			Text:           summary,
@@ -142,7 +140,7 @@ func (a *codexAppServerWakeAdapter) Prepare(ctx context.Context, rt *Runtime, ag
 			DurableAgentID: strings.TrimSpace(agent.AgentID),
 			Timestamp:      now,
 		},
-		SessionChatType:      codexAppServerWakeChannel,
+		SessionChatType:      runtimecodex.WakeChannel,
 		SessionUserName:      "codex_app_server",
 		PromptContextErrHint: "load codex app-server durable wake prompt context",
 		PolicyReason:         "mapped from generic codex_app_server durable-agent channel adapter",
@@ -185,7 +183,7 @@ func (a *codexAppServerWakeAdapter) Prepare(ctx context.Context, rt *Runtime, ag
 				},
 				Metadata: map[string]string{
 					"channel_kind":          strings.TrimSpace(agent.ChannelKind),
-					"channel_adapter":       codexAppServerAdapterName,
+					"channel_adapter":       runtimecodex.AdapterName,
 					"channel_address":       address,
 					"thread_id":             strings.TrimSpace(result.ThreadID),
 					"turn_id":               strings.TrimSpace(result.TurnID),
@@ -194,9 +192,9 @@ func (a *codexAppServerWakeAdapter) Prepare(ctx context.Context, rt *Runtime, ag
 					"artifact_sha256":       artifactSHA,
 					"trigger_kinds":         "codex_app_server,heartbeat,status",
 					"child_local_subject":   "false",
-					"approvals_decisions":   summarizeCodexApprovalDecisions(result.ApprovalLog),
+					"approvals_decisions":   runtimecodex.SummarizeApprovalDecisions(result.ApprovalLog),
 					"notifications_count":   fmt.Sprintf("%d", result.Notifications),
-					"single_session_thread": codexAppServerBoolString(strings.TrimSpace(result.ThreadID) != ""),
+					"single_session_thread": runtimecodex.BoolString(strings.TrimSpace(result.ThreadID) != ""),
 				},
 			})
 			return err

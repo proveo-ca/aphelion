@@ -10,6 +10,7 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/pipeline"
 	"github.com/idolum-ai/aphelion/principal"
+	"github.com/idolum-ai/aphelion/runtime/codex"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 	"net/http"
@@ -82,9 +83,9 @@ func TestCodexWorkEventFromNotificationCapturesCoreInterfaces(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event, ok := codexWorkEventFromNotification(tt.method, tt.params)
+			event, ok := codex.WorkEventFromNotification(tt.method, tt.params)
 			if !ok {
-				t.Fatalf("codexWorkEventFromNotification(%q) ok=false", tt.method)
+				t.Fatalf("codex.WorkEventFromNotification(%q) ok=false", tt.method)
 			}
 			if event.Kind != tt.kind || event.Subject != tt.subject {
 				t.Fatalf("event = %#v, want kind=%q subject=%q", event, tt.kind, tt.subject)
@@ -96,7 +97,7 @@ func TestCodexWorkEventFromNotificationCapturesCoreInterfaces(t *testing.T) {
 func TestCodexAppServerClientRecordsServerRequestEvents(t *testing.T) {
 	t.Parallel()
 
-	client := newCodexAppServerClient("ws://127.0.0.1:1", codexWorkApprovalHandler(WorkRequest{Mode: WorkModeWorkspaceWrite}))
+	client := codex.NewClient("ws://127.0.0.1:1", codexWorkApprovalHandler(WorkRequest{Mode: WorkModeWorkspaceWrite}))
 	response := client.HandleServerRequest("tool/requestUserInput", map[string]any{"prompt": "Pick a branch", "status": "pending"})
 	if len(response) != 0 {
 		t.Fatalf("response = %#v, want empty safe response for unsupported user input request", response)
@@ -329,12 +330,12 @@ func TestCodexWorkResultDerivesEvidenceAndCommitLane(t *testing.T) {
 		{Kind: "file_change", Path: "runtime/work_executor.go", Preview: "@@ diff"},
 		{Kind: "command", Command: "go test ./runtime", Status: "completed"},
 	}
-	result := codexWorkResultFromAppServer(WorkRequest{Mode: WorkModeWorkspaceWrite}, "thread-1", "turn-1", codexAppServerResult{
+	result := WorkResult(codex.WorkResultFromAppServer(codexWorkRequest(WorkRequest{Mode: WorkModeWorkspaceWrite}), "thread-1", "turn-1", codex.Result{
 		ThreadID:    "thread-1",
 		TurnID:      "turn-1",
 		Text:        "done",
 		CodexEvents: events,
-	})
+	}))
 	if len(result.ChangedFiles) != 1 || result.ChangedFiles[0] != "runtime/work_executor.go" {
 		t.Fatalf("changed files = %#v, want file evidence derived from Codex event", result.ChangedFiles)
 	}

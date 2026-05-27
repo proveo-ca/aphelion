@@ -16,7 +16,7 @@ import (
 	"github.com/idolum-ai/aphelion/session"
 )
 
-var errNoStatusEnvelope = errors.New("codex app-server turn did not return a durable child status envelope")
+var ErrNoStatusEnvelope = errors.New("codex app-server turn did not return a durable child status envelope")
 
 type RealAppServerDoer struct{}
 
@@ -59,7 +59,7 @@ func (RealAppServerDoer) Do(ctx context.Context, req Request) (Result, error) {
 	result.ThreadID = firstNonEmpty(strings.TrimSpace(result.ThreadID), threadID)
 	result.TurnID = firstNonEmpty(strings.TrimSpace(result.TurnID), turnID)
 	if len(result.EnvelopeRaw) == 0 {
-		return result, errNoStatusEnvelope
+		return result, ErrNoStatusEnvelope
 	}
 	env, err := core.ParseDurableChildStatusEnvelope(result.EnvelopeRaw)
 	if err != nil {

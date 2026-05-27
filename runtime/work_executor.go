@@ -14,6 +14,7 @@ import (
 	"github.com/idolum-ai/aphelion/config"
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/principal"
+	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
 	"github.com/idolum-ai/aphelion/session"
 )
 
@@ -53,7 +54,7 @@ type WorkResult struct {
 	CodexEvents      []session.WorkCodexEvent
 	PatchPreview     string
 	CommitLaneStatus string
-	ApprovalLog      []codexAppServerApprovalDecision
+	ApprovalLog      []runtimecodex.ApprovalDecision
 	CompletionKind   string
 	SideEffects      bool
 }
@@ -305,11 +306,11 @@ func newCodexWorkExecutor(cfg config.WorkCodexConfig) WorkExecutor {
 }
 
 func checkCodexWorkAppServerReady(ctx context.Context, address string) error {
-	if err := checkCodexAppServerHTTP(ctx, address, "/healthz"); err == nil {
+	if err := runtimecodex.CheckHTTP(ctx, address, "/healthz"); err == nil {
 		return nil
 	} else {
 		healthzErr := err
-		if err := checkCodexAppServerHTTP(ctx, address, "/health"); err == nil {
+		if err := runtimecodex.CheckHTTP(ctx, address, "/health"); err == nil {
 			return nil
 		} else {
 			return fmt.Errorf("healthz failed: %v; health failed: %w", healthzErr, err)
@@ -335,7 +336,7 @@ func (e codexWorkExecutor) Run(ctx context.Context, req WorkRequest) (WorkResult
 	if strings.TrimSpace(e.address) == "" {
 		return WorkResult{}, fmt.Errorf("codex app-server address not configured")
 	}
-	client := newCodexAppServerClient(e.address, codexWorkApprovalHandler(req))
+	client := runtimecodex.NewClient(e.address, codexWorkApprovalHandler(req))
 	defer client.Close(websocket.StatusNormalClosure, "done")
 	if err := e.withRPCTimeout(ctx, client.Connect); err != nil {
 		return WorkResult{}, err
@@ -378,18 +379,18 @@ func (e codexWorkExecutor) Run(ctx context.Context, req WorkRequest) (WorkResult
 	if err != nil {
 		return WorkResult{}, err
 	}
-	result, err := client.StreamTurnWithOptions(ctx, threadID, turnID, codexAppServerStreamOptions{FirstNotificationTimeout: e.firstNotificationWait()})
+	result, err := client.StreamTurnWithOptions(ctx, threadID, turnID, runtimecodex.StreamOptions{FirstNotificationTimeout: e.firstNotificationWait()})
 	if err != nil {
-		partial := codexWorkResultFromAppServer(req, threadID, turnID, codexAppServerResult{
+		partial := WorkResult(runtimecodex.WorkResultFromAppServer(codexWorkRequest(req), threadID, turnID, runtimecodex.Result{
 			ThreadID:     threadID,
 			TurnID:       turnID,
 			ApprovalLog:  client.ApprovalLog(),
 			CodexEvents:  client.WorkEvents(),
-			PatchPreview: codexWorkPatchPreviewFromEvents(client.WorkEvents()),
-		})
+			PatchPreview: runtimecodex.WorkPatchPreviewFromEvents(client.WorkEvents()),
+		}))
 		return partial, err
 	}
-	return codexWorkResultFromAppServer(req, threadID, turnID, result), nil
+	return WorkResult(runtimecodex.WorkResultFromAppServer(codexWorkRequest(req), threadID, turnID, result)), nil
 }
 
 func (e codexWorkExecutor) withRPCTimeout(ctx context.Context, call func(context.Context) error) error {

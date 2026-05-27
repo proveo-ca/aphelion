@@ -16,10 +16,11 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
+	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
 	"github.com/idolum-ai/aphelion/session"
 )
 
-func recordCodexAppServerFailure(store *session.SQLiteStore, state *core.DurableAgentState, continuity core.DurableAgentContinuityState, runtimeState core.DurableAgentExternalChannelRuntimeState, memoryRoot string, agent core.DurableAgent, result codexAppServerResult, cause error, now time.Time) error {
+func recordCodexAppServerFailure(store *session.SQLiteStore, state *core.DurableAgentState, continuity core.DurableAgentContinuityState, runtimeState core.DurableAgentExternalChannelRuntimeState, memoryRoot string, agent core.DurableAgent, result runtimecodex.Result, cause error, now time.Time) error {
 	if store == nil || state == nil {
 		return fmt.Errorf("record codex app-server failure: store/state unavailable")
 	}
@@ -37,8 +38,8 @@ func recordCodexAppServerFailure(store *session.SQLiteStore, state *core.Durable
 		artifactRel = rel
 	}
 	runtimeState = externalChannelRecordFailure(runtimeState, externalChannelCommandLifecycle{
-		Adapter:      codexAppServerAdapterName,
-		Command:      codexAppServerStatusCommandName,
+		Adapter:      runtimecodex.AdapterName,
+		Command:      runtimecodex.StatusCommandName,
 		SessionRef:   runtimeState.SessionRef,
 		LastArtifact: artifactRel,
 		LastStatus:   "blocked",
@@ -61,7 +62,7 @@ func codexAppServerFailureShouldResetThread(cause error) bool {
 		strings.Contains(msg, "payload_hash mismatch")
 }
 
-func writeCodexAppServerFailureArtifact(memoryRoot string, agent core.DurableAgent, result codexAppServerResult, cause error, now time.Time) (string, string, error) {
+func writeCodexAppServerFailureArtifact(memoryRoot string, agent core.DurableAgent, result runtimecodex.Result, cause error, now time.Time) (string, string, error) {
 	if strings.TrimSpace(memoryRoot) == "" {
 		return "", "", nil
 	}
@@ -94,19 +95,19 @@ func writeCodexAppServerFailureArtifact(memoryRoot string, agent core.DurableAge
 	}
 	sum := sha256.Sum256(raw)
 	hash := "sha256:" + hex.EncodeToString(sum[:])
-	manifest, err := loadCodexAppServerArtifactManifest(artifactRoot, agent.AgentID)
+	manifest, err := runtimecodex.LoadArtifactManifest(artifactRoot, agent.AgentID)
 	if err != nil {
 		return "", "", err
 	}
-	manifest = upsertCodexAppServerArtifactManifestEntry(manifest, codexAppServerArtifactManifestEntry{
+	manifest = runtimecodex.UpsertArtifactManifestEntry(manifest, runtimecodex.ArtifactManifestEntry{
 		Path:      rel,
 		Kind:      "failure_quarantine",
-		Source:    codexAppServerAdapterName,
+		Source:    runtimecodex.AdapterName,
 		Reason:    "Codex app-server heartbeat failure quarantined instead of retry-spamming.",
 		SHA256:    hash,
 		UpdatedAt: now.UTC(),
 	}, now.UTC())
-	if err := writeCodexAppServerArtifactManifest(artifactRoot, manifest); err != nil {
+	if err := runtimecodex.WriteArtifactManifest(artifactRoot, manifest); err != nil {
 		return "", "", err
 	}
 	return "artifacts/" + rel, hash, nil
@@ -133,8 +134,6 @@ type codexAppServerAdapterState struct {
 	LastPayloadHash string `json:"last_payload_hash,omitempty"`
 }
 
-const codexAppServerStatusCommandName = "codex_app_server.status_heartbeat"
-
 func decodeCodexAdapterState(raw json.RawMessage) codexAppServerAdapterState {
 	var state codexAppServerAdapterState
 	if len(bytes.TrimSpace(raw)) > 0 {
@@ -153,13 +152,13 @@ func encodeCodexExternalChannelState(runtimeState core.DurableAgentExternalChann
 	if strings.TrimSpace(runtimeState.SessionRef) == "" {
 		runtimeState.SessionRef = codexState.ThreadID
 	}
-	runtimeState.Adapter = codexAppServerAdapterName
+	runtimeState.Adapter = runtimecodex.AdapterName
 	raw, _ := json.Marshal(codexState)
 	runtimeState.AdapterState = json.RawMessage(raw)
 	return core.NormalizeDurableAgentContinuityState(core.DurableAgentContinuityState{ExternalChannel: &runtimeState}).ExternalChannel
 }
 
-func writeCodexAppServerHeartbeatArtifact(memoryRoot string, agent core.DurableAgent, result codexAppServerResult, now time.Time) (string, string, error) {
+func writeCodexAppServerHeartbeatArtifact(memoryRoot string, agent core.DurableAgent, result runtimecodex.Result, now time.Time) (string, string, error) {
 	envelopeRaw := bytes.TrimSpace(result.EnvelopeRaw)
 	if len(envelopeRaw) == 0 {
 		envelopeRaw = bytes.TrimSpace([]byte(result.Text))
@@ -181,19 +180,19 @@ func writeCodexAppServerHeartbeatArtifact(memoryRoot string, agent core.DurableA
 	}
 	sum := sha256.Sum256(content)
 	hash := "sha256:" + hex.EncodeToString(sum[:])
-	manifest, err := loadCodexAppServerArtifactManifest(artifactRoot, agent.AgentID)
+	manifest, err := runtimecodex.LoadArtifactManifest(artifactRoot, agent.AgentID)
 	if err != nil {
 		return "", "", err
 	}
-	manifest = upsertCodexAppServerArtifactManifestEntry(manifest, codexAppServerArtifactManifestEntry{
+	manifest = runtimecodex.UpsertArtifactManifestEntry(manifest, runtimecodex.ArtifactManifestEntry{
 		Path:      rel,
 		Kind:      "heartbeat_envelope",
-		Source:    codexAppServerAdapterName,
+		Source:    runtimecodex.AdapterName,
 		Reason:    "Read-only durable_child_status envelope collected through generic codex_app_server adapter.",
 		SHA256:    hash,
 		UpdatedAt: now.UTC(),
 	}, now.UTC())
-	if err := writeCodexAppServerArtifactManifest(artifactRoot, manifest); err != nil {
+	if err := runtimecodex.WriteArtifactManifest(artifactRoot, manifest); err != nil {
 		return "", "", err
 	}
 	return "artifacts/" + rel, hash, nil

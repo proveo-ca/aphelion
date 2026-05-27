@@ -7,6 +7,49 @@ import (
 	"strings"
 )
 
+func CommandAllowed(mode WorkMode, repoRoot string, workdir string, command string) bool {
+	compact := normalizeCodexCommand(command)
+	if compact == "" {
+		return false
+	}
+	effect := classifyCodexCommandEffect(compact)
+	if mode == WorkModeReadOnly {
+		return effect.ReadOnlyAllowed()
+	}
+	if effect.Kind == codexCommandEffectRepoHistory && effect.Reason == "git push" {
+		return false
+	}
+	if effect.Kind == codexCommandEffectService && mode != WorkModeDeploy {
+		return false
+	}
+	if effect.Kind == codexCommandEffectRepoHistory && effect.Reason == "git commit" && mode != WorkModeCommit && mode != WorkModeDeploy {
+		return false
+	}
+	if effect.Kind == codexCommandEffectHighImpactStorage {
+		return false
+	}
+	return commandWithinWorkRoot(repoRoot, workdir)
+}
+
+func ApprovalLogHasSideEffects(log []ApprovalDecision) bool {
+	for _, decision := range log {
+		if decision.Decision != "accept" {
+			continue
+		}
+		if decision.Method == "item/fileChange/requestApproval" {
+			return true
+		}
+		cmd := strings.ToLower(strings.TrimSpace(decision.Command))
+		if cmd == "" {
+			continue
+		}
+		if ApprovedCommandHasSideEffects(cmd) {
+			return true
+		}
+	}
+	return false
+}
+
 func ApprovedCommandHasSideEffects(command string) bool {
 	effect := classifyCodexCommandEffect(command)
 	return effect.SideEffects
@@ -354,4 +397,17 @@ func codexCommandContainsAny(value string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+func commandWithinWorkRoot(root string, workdir string) bool {
+	root = strings.TrimSpace(root)
+	workdir = strings.TrimSpace(workdir)
+	if root == "" || workdir == "" {
+		return true
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(workdir))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, "../"))
 }

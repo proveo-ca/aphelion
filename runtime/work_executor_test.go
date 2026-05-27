@@ -9,6 +9,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/idolum-ai/aphelion/config"
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/runtime/codex"
 	"github.com/idolum-ai/aphelion/session"
 	"net/http"
 	"net/http/httptest"
@@ -230,21 +231,21 @@ func TestWorkExecutorSelectorFallsBackAfterReadOnlyCodexApprovalFailure(t *testi
 func TestCodexApprovalLogSideEffectsIgnoreReadOnlyApprovals(t *testing.T) {
 	t.Parallel()
 
-	readOnly := []codexAppServerApprovalDecision{
+	readOnly := []codex.ApprovalDecision{
 		{Method: "item/commandExecution/requestApproval", Decision: "accept", Command: "git status --short"},
 		{Method: "item/commandExecution/requestApproval", Decision: "accept", Command: "rg doctor runtime"},
 	}
-	if codexApprovalLogHasSideEffects(readOnly) {
+	if codex.ApprovalLogHasSideEffects(readOnly) {
 		t.Fatalf("read-only approvals were classified as side effects: %#v", readOnly)
 	}
-	for _, log := range [][]codexAppServerApprovalDecision{
+	for _, log := range [][]codex.ApprovalDecision{
 		{{Method: "item/fileChange/requestApproval", Decision: "accept"}},
 		{{Method: "item/commandExecution/requestApproval", Decision: "accept", Command: "apply_patch < patch.diff"}},
 		{{Method: "item/commandExecution/requestApproval", Decision: "accept", Command: "git commit -am fix"}},
 		{{Method: "item/commandExecution/requestApproval", Decision: "accept", Command: "go test ./runtime"}},
 		{{Method: "item/commandExecution/requestApproval", Decision: "accept", Command: "systemctl --user restart aphelion"}},
 	} {
-		if !codexApprovalLogHasSideEffects(log) {
+		if !codex.ApprovalLogHasSideEffects(log) {
 			t.Fatalf("mutating approval was not classified as side effect: %#v", log)
 		}
 	}
@@ -299,8 +300,8 @@ func TestCodexApprovedCommandSideEffectTaxonomy(t *testing.T) {
 		"go list ./runtime",
 	}
 	for _, command := range readOnly {
-		if codexApprovedCommandHasSideEffects(command) {
-			t.Fatalf("codexApprovedCommandHasSideEffects(%q) = true, want false", command)
+		if codex.ApprovedCommandHasSideEffects(command) {
+			t.Fatalf("codex.ApprovedCommandHasSideEffects(%q) = true, want false", command)
 		}
 	}
 	mutating := []string{
@@ -317,8 +318,8 @@ func TestCodexApprovedCommandSideEffectTaxonomy(t *testing.T) {
 		"unknown-tool --flag",
 	}
 	for _, command := range mutating {
-		if !codexApprovedCommandHasSideEffects(command) {
-			t.Fatalf("codexApprovedCommandHasSideEffects(%q) = false, want true", command)
+		if !codex.ApprovedCommandHasSideEffects(command) {
+			t.Fatalf("codex.ApprovedCommandHasSideEffects(%q) = false, want true", command)
 		}
 	}
 }

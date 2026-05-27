@@ -12,6 +12,7 @@ import (
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/durableagent"
+	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
 	"github.com/idolum-ai/aphelion/session"
 )
 
@@ -37,7 +38,7 @@ func (genericExternalChannelWakeAdapter) Supports(agent core.DurableAgent) bool 
 	if external == nil || strings.TrimSpace(external.Adapter) == "" {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(external.Adapter), codexAppServerAdapterName) {
+	if strings.EqualFold(strings.TrimSpace(external.Adapter), runtimecodex.AdapterName) {
 		return false
 	}
 	mode := strings.TrimSpace(agent.WakeupMode)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/durableagent"
+	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 )
@@ -105,7 +106,7 @@ func (r *Runtime) externalChannelAdapterReadinessSnapshots(now time.Time) ([]ext
 	rows := make([]externalChannelAdapterReadiness, 0, len(agents))
 	for _, agent := range agents {
 		external := agent.ChannelConfig.ExternalConfig()
-		if external == nil || strings.TrimSpace(external.Adapter) == "" || strings.EqualFold(strings.TrimSpace(external.Adapter), codexAppServerAdapterName) {
+		if external == nil || strings.TrimSpace(external.Adapter) == "" || strings.EqualFold(strings.TrimSpace(external.Adapter), runtimecodex.AdapterName) {
 			continue
 		}
 		rows = append(rows, r.externalChannelReadinessForAgent(agent, now))
