@@ -6,10 +6,11 @@ the radio link.
 
 ## Install Choice
 
-Use the release path when you want the current published binary:
+Use the release path when you want the current published binary. Pin both the installer ref and release asset to the same public release tag:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/idolum-ai/aphelion/main/scripts/install-release.sh | bash
+APHELION_VERSION=v0.1.3
+curl -fsSL "https://raw.githubusercontent.com/idolum-ai/aphelion/${APHELION_VERSION}/scripts/install-release.sh" | bash -s -- "${APHELION_VERSION}"
 ~/.local/bin/aphelion quickstart --detect-admin --install-service
 ```
 
