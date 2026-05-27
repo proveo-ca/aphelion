@@ -7,9 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/idolum-ai/aphelion/internal/standalonecli"
-	"github.com/idolum-ai/aphelion/internal/telegramcommands"
-	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"log"
 	"net/http"
 	"os"
@@ -21,8 +18,11 @@ import (
 	"github.com/idolum-ai/aphelion/config"
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/standalonecli"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"github.com/idolum-ai/aphelion/internal/telegramcontrol"
 	"github.com/idolum-ai/aphelion/internal/telegramdecision"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"github.com/idolum-ai/aphelion/memory"
 	"github.com/idolum-ai/aphelion/openai"
 	"github.com/idolum-ai/aphelion/principal"
@@ -32,6 +32,7 @@ import (
 	"github.com/idolum-ai/aphelion/tool"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 	"github.com/idolum-ai/aphelion/voice"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (

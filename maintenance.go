@@ -5,15 +5,15 @@ package main
 import (
 	"context"
 	"embed"
-	"github.com/idolum-ai/aphelion/config"
-	"github.com/idolum-ai/aphelion/internal/standalonecli"
-	"github.com/idolum-ai/aphelion/session"
 	"io"
 	"os"
 	"time"
 
+	"github.com/idolum-ai/aphelion/config"
 	"github.com/idolum-ai/aphelion/internal/maintenancecli"
+	"github.com/idolum-ai/aphelion/internal/standalonecli"
 	aphruntime "github.com/idolum-ai/aphelion/runtime"
+	"github.com/idolum-ai/aphelion/session"
 )
 
 //go:embed defaults/agent/* defaults/agent/memory/*
@@ -109,6 +109,7 @@ func runMaintenanceCommand(args []string) (bool, error) {
 	}
 }
 
+// Root owns dependency assembly; maintenance behavior lives in internal/maintenancecli.
 func runRepairLiveStateCommand(args []string) error {
 	return maintenancecli.RunRepairLiveStateCommand(args, maintenanceLiveStateRepairDeps())
 }
