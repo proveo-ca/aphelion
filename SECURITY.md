@@ -10,6 +10,10 @@ Security fixes are handled on the default branch until the project publishes a
 stable release policy. Public releases before a stable version should be treated
 as alpha software.
 
+During alpha, fast-install docs may fetch the installer from `main` and install
+the latest release asset. Stable install instructions should pin a reviewed tag
+for both the installer script and the release version being installed.
+
 ## Reporting a Vulnerability
 
 Please do not report vulnerabilities in public issues.

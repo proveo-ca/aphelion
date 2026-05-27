@@ -16,6 +16,11 @@ Use only these three terms when classifying current architecture surfaces:
 - `operational current-state store`: mutable "what is currently declared now"
   surface used by runtime operations.
 
+The applied map for current state surfaces is
+[`state-surfaces.md`](state-surfaces.md#classification-matrix). Architecture
+notes that classify a current surface should use these terms exactly or link to
+that matrix so the vocabulary remains searchable.
+
 ## Truth-Class Invariants
 
 These invariants are normative for architecture and requirements alignment:

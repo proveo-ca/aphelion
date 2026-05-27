@@ -97,6 +97,15 @@ curl -fsSL https://raw.githubusercontent.com/idolum-ai/aphelion/main/scripts/ins
 ~/.local/bin/aphelion quickstart --detect-admin --install-service
 ```
 
+Alpha note: this convenience path fetches the installer from `main` and installs
+the latest published release asset after checksum verification. For stable or
+security-sensitive installs, pin both the installer ref and release version:
+
+```bash
+APHELION_VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/idolum-ai/aphelion/${APHELION_VERSION}/scripts/install-release.sh" | bash -s -- "${APHELION_VERSION}"
+```
+
 For headless setup:
 
 ```bash

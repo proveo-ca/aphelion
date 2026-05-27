@@ -28,6 +28,12 @@ Status values:
 
 None.
 
+`None.` means no known uncontained principle violation is being carried here.
+Temporary architecture seams belong in the root
+[`ARCHITECTURE_WAIVERS.md`](../../ARCHITECTURE_WAIVERS.md) ledger; broader
+pressure that needs watchfulness but not immediate remediation belongs under
+Monitored Tensions.
+
 ## Monitored Tensions
 
 - **Scope/legibility tension:** Aphelion's implemented surface is broad enough

@@ -1,18 +1,25 @@
 # Contributing
 
-Aphelion is intentionally small: a Linux-first, Telegram-controlled, governed
-outpost for personal agents. Contributions should preserve that shape.
+Aphelion is a Linux-first, Telegram-controlled, governed outpost for personal
+agents. Contributions should preserve that shape: local operation, explicit
+authority, typed evidence, and short repair paths.
 
 The practical contributor path is
 [docs/guides/contributor-handbook.md](docs/guides/contributor-handbook.md).
 
 ## Local Setup
 
+On Linux, run the normal local loop:
+
 ```bash
 go test ./...
 make architecture
 make build
 ```
+
+On macOS or another non-Linux host, `make test` and `make architecture`
+intentionally stop with a Linux-only message. Use `make verify-linux-compile`
+for a local compile-only check, then get the full Linux loop run before merge.
 
 Use `config.example.toml` as a reference. Do not commit live config, tokens,
 session databases, logs, transcripts, or local artifacts.
@@ -30,7 +37,7 @@ session databases, logs, transcripts, or local artifacts.
 
 ## Pull Requests
 
-Before opening a PR, run:
+Before opening a PR from Linux, run:
 
 ```bash
 make public-readiness
@@ -39,6 +46,10 @@ go test ./...
 make build
 git diff --check
 ```
+
+PRs must have Linux verification before merge. If you developed from a
+non-Linux host, include the `make verify-linux-compile` result and say who will
+run or has run the Linux loop.
 
 If `gitleaks` is available, also run:
 

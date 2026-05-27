@@ -10,8 +10,11 @@ an explicit split direction. New large files should be rare.
 - A large file should have one owner concept, not a grab bag of unrelated flows.
 - Split when a file mixes durable concepts, grows a second ownership boundary, or
   blocks local reasoning. Do not split only to satisfy a line counter.
-- Broad packages with stable boundaries must carry a `doc.go` ownership note
-  that names what the package owns and what it must not import or decide.
+- Top-level packages and stable subpackages that own authority, credentials,
+  durable state, transports, tools, or external effects must carry a `doc.go`
+  ownership note that names what the package owns and what it must not import or
+  decide. Tiny adapters, generated fixtures, and temporary internal leaves are
+  exempt until they become a stable ownership boundary.
 - Delete completed plans and transient migration notes after their durable
   content is moved into current docs.
 
