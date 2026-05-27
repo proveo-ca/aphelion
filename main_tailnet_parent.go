@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"log"
 	"os"
 	"strings"
@@ -15,7 +16,7 @@ import (
 	"github.com/idolum-ai/aphelion/tailnet"
 )
 
-func tailnetParentService(cfg *config.Config, router commandRouter, store *session.SQLiteStore) (*tailnet.ParentService, error) {
+func tailnetParentService(cfg *config.Config, router telegramcommands.Router, store *session.SQLiteStore) (*tailnet.ParentService, error) {
 	if cfg == nil || !cfg.Tailscale.Enabled || !cfg.Tailscale.Parent.Enabled {
 		return nil, nil
 	}

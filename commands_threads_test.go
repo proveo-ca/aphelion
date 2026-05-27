@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"strings"
 	"testing"
 
@@ -18,12 +19,12 @@ import (
 func TestParseTelegramThreadPrefix(t *testing.T) {
 	t.Parallel()
 
-	threadID, text, ok := parseTelegramThreadPrefix("(thread 12)\n\ncreate three children")
+	threadID, text, ok := telegramcommands.ParseTelegramThreadPrefix("(thread 12)\n\ncreate three children")
 	if !ok || threadID != 12 || text != "create three children" {
-		t.Fatalf("parseTelegramThreadPrefix() = id:%d text:%q ok:%t", threadID, text, ok)
+		t.Fatalf("telegramcommands.ParseTelegramThreadPrefix() = id:%d text:%q ok:%t", threadID, text, ok)
 	}
-	if _, _, ok := parseTelegramThreadPrefix("thread 12 create three children"); ok {
-		t.Fatal("parseTelegramThreadPrefix() ok=true without typed prefix")
+	if _, _, ok := telegramcommands.ParseTelegramThreadPrefix("thread 12 create three children"); ok {
+		t.Fatal("telegramcommands.ParseTelegramThreadPrefix() ok=true without typed prefix")
 	}
 }
 
@@ -32,7 +33,7 @@ func TestThreadCommandRoutesTextWithoutSendingCommandReply(t *testing.T) {
 
 	sender := &stubCommandSender{}
 	router := &stubCommandRouter{}
-	routed, retargeted, handled, err := resolveTelegramThreadStartCommand(context.Background(), sender, router, core.InboundMessage{
+	routed, retargeted, handled, err := telegramcommands.ResolveTelegramThreadStartCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:          1001,
 		SenderID:        2002,
 		MessageID:       3003,
@@ -41,7 +42,7 @@ func TestThreadCommandRoutesTextWithoutSendingCommandReply(t *testing.T) {
 		Text:            "/thread create three children",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadStartCommand() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadStartCommand() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want pipeline to continue with thread payload")
@@ -65,7 +66,7 @@ func TestThreadCommandTreatsSlashArgumentAsThreadWork(t *testing.T) {
 
 	sender := &stubCommandSender{}
 	router := &stubCommandRouter{}
-	routed, retargeted, handled, err := resolveTelegramThreadStartCommand(context.Background(), sender, router, core.InboundMessage{
+	routed, retargeted, handled, err := telegramcommands.ResolveTelegramThreadStartCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:          1001,
 		SenderID:        2002,
 		MessageID:       3003,
@@ -74,7 +75,7 @@ func TestThreadCommandTreatsSlashArgumentAsThreadWork(t *testing.T) {
 		Text:            "/thread /stop",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadStartCommand() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadStartCommand() err = %v", err)
 	}
 	if handled || !retargeted {
 		t.Fatalf("handled=%t retargeted=%t, want retargeted thread work payload", handled, retargeted)
@@ -94,7 +95,7 @@ func TestThreadCommandWithoutArgsCreatesEmptyThreadGuide(t *testing.T) {
 	router := &stubCommandRouter{
 		threadCreateReturn: session.TelegramThread{ChatID: 1001, ThreadID: 7, Status: session.TelegramThreadStatusOpen},
 	}
-	handled, err := handleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
+	handled, err := telegramcommands.HandleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:          1001,
 		SenderID:        2002,
 		MessageID:       3003,
@@ -103,7 +104,7 @@ func TestThreadCommandWithoutArgsCreatesEmptyThreadGuide(t *testing.T) {
 		Text:            "/thread",
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommand(/thread) err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommand(/thread) err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -130,7 +131,7 @@ func TestThreadPrefixRoutesToThread(t *testing.T) {
 
 	sender := &stubCommandSender{}
 	router := &stubCommandRouter{threadsReturn: []session.TelegramThread{{ChatID: 1001, ThreadID: 2, DisplaySlot: 2, Status: session.TelegramThreadStatusOpen}}}
-	routed, handled, err := resolveTelegramThreadPrefix(context.Background(), sender, router, core.InboundMessage{
+	routed, handled, err := telegramcommands.ResolveTelegramThreadPrefix(context.Background(), sender, router, core.InboundMessage{
 		ChatID:          1001,
 		SenderID:        2002,
 		MessageID:       3003,
@@ -139,7 +140,7 @@ func TestThreadPrefixRoutesToThread(t *testing.T) {
 		Text:            "(thread 2) continue that plan",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadPrefix() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadPrefix() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want normal pipeline to process thread-targeted payload")
@@ -160,7 +161,7 @@ func TestThreadPrefixTargetsBusyDecisionLane(t *testing.T) {
 
 	sender := &stubCommandSender{}
 	threadRouter := &stubCommandRouter{threadsReturn: []session.TelegramThread{{ChatID: 7, ThreadID: 3, DisplaySlot: 3, Status: session.TelegramThreadStatusOpen}}}
-	routed, handled, err := resolveTelegramThreadPrefix(context.Background(), sender, threadRouter, core.InboundMessage{
+	routed, handled, err := telegramcommands.ResolveTelegramThreadPrefix(context.Background(), sender, threadRouter, core.InboundMessage{
 		ChatID:          7,
 		SenderID:        42,
 		MessageID:       99,
@@ -169,7 +170,7 @@ func TestThreadPrefixTargetsBusyDecisionLane(t *testing.T) {
 		Text:            "(thread 3) next task",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadPrefix() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadPrefix() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want busy gate to see retargeted side-thread message")
@@ -231,14 +232,14 @@ func TestThreadPrefixCanTargetLaneCommand(t *testing.T) {
 
 	sender := &stubCommandSender{}
 	router := &stubCommandRouter{threadsReturn: []session.TelegramThread{{ChatID: 1001, ThreadID: 2, DisplaySlot: 2, Status: session.TelegramThreadStatusOpen}}}
-	routed, handled, err := resolveTelegramThreadPrefix(context.Background(), sender, router, core.InboundMessage{
+	routed, handled, err := telegramcommands.ResolveTelegramThreadPrefix(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
 		Text:      "(thread 2) /stop",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadPrefix() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadPrefix() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want command handler to process targeted lane command")
@@ -261,7 +262,7 @@ func TestReplySlashCommandTargetsThreadLane(t *testing.T) {
 		threadReplyReturn: session.TelegramThread{ChatID: 1001, ThreadID: 4, Status: session.TelegramThreadStatusOpen},
 		stopMessageResult: core.StopResult{ActiveCanceled: true},
 	}
-	handled, err := handleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
+	handled, err := telegramcommands.HandleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
@@ -269,7 +270,7 @@ func TestReplySlashCommandTargetsThreadLane(t *testing.T) {
 		Text:      "/stop",
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommand() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommand() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want thread-targeted command handled")
@@ -292,7 +293,7 @@ func TestThreadPrefixOverridesReplyTarget(t *testing.T) {
 		threadReplyOK:     true,
 		threadReplyReturn: session.TelegramThread{ChatID: 1001, ThreadID: 4, Status: session.TelegramThreadStatusOpen},
 	}
-	routed, handled, err := resolveTelegramThreadPrefix(context.Background(), sender, router, core.InboundMessage{
+	routed, handled, err := telegramcommands.ResolveTelegramThreadPrefix(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
@@ -300,7 +301,7 @@ func TestThreadPrefixOverridesReplyTarget(t *testing.T) {
 		Text:      "(thread 7) continue that plan",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadPrefix() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadPrefix() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want explicit thread prefix to continue without reply lookup")
@@ -326,14 +327,14 @@ func TestThreadsCommandListsAbsorbButtons(t *testing.T) {
 			{ChatID: 1001, ThreadID: 1, Status: session.TelegramThreadStatusClosed, CreatedText: "first task"},
 		},
 	}
-	handled, err := handleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
+	handled, err := telegramcommands.HandleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
 		Text:      "/threads",
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommand(/threads) err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommand(/threads) err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -358,14 +359,14 @@ func TestThreadsCommandShowsDisplaySlotWithCanonicalAbsorbCallback(t *testing.T)
 			{ChatID: 1001, ThreadID: 42, DisplaySlot: 1, Status: session.TelegramThreadStatusOpen, CreatedText: "current side task"},
 		},
 	}
-	handled, err := handleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
+	handled, err := telegramcommands.HandleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
 		Text:      "/threads",
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommand(/threads) err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommand(/threads) err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -387,14 +388,14 @@ func TestAbsorbCommandWithoutArgumentShowsThreadBoard(t *testing.T) {
 			{ChatID: 1001, ThreadID: 4, Status: session.TelegramThreadStatusOpen, CreatedText: "side task"},
 		},
 	}
-	handled, err := handleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
+	handled, err := telegramcommands.HandleTelegramCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
 		Text:      "/absorb",
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommand(/absorb) err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommand(/absorb) err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -410,17 +411,17 @@ func TestThreadAbsorbCallbackClosesThroughRouter(t *testing.T) {
 	var order []string
 	sender := &stubCommandSender{order: &order}
 	router := &stubCommandRouter{absorbThreadReturn: "Absorbed thread 3.", order: &order}
-	handled, err := handleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
+	handled, err := telegramcommands.HandleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
 		ID:   "cb-thread-absorb",
 		From: &telegram.User{ID: 2002},
-		Data: encodeTelegramThreadAbsorbCallback(3),
+		Data: telegramcommands.EncodeTelegramThreadAbsorbCallback(3),
 		Message: &telegram.Message{
 			MessageID: 3003,
 			Chat:      &telegram.Chat{ID: 1001, Type: "private"},
 		},
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommandCallback() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommandCallback() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -445,17 +446,17 @@ func TestThreadAbsorbCallbackRunsWhenEarlyAckIsStale(t *testing.T) {
 	staleErr := errors.New("telegram answerCallbackQuery failed: Bad Request: query is too old and response timeout expired or query ID is invalid")
 	sender := &stubCommandSender{answerErr: staleErr}
 	router := &stubCommandRouter{absorbThreadReturn: "Absorbed thread 3."}
-	handled, err := handleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
+	handled, err := telegramcommands.HandleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
 		ID:   "cb-thread-absorb-stale",
 		From: &telegram.User{ID: 2002},
-		Data: encodeTelegramThreadAbsorbCallback(3),
+		Data: telegramcommands.EncodeTelegramThreadAbsorbCallback(3),
 		Message: &telegram.Message{
 			MessageID: 3003,
 			Chat:      &telegram.Chat{ID: 1001, Type: "private"},
 		},
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommandCallback() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommandCallback() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -480,7 +481,7 @@ func TestTelegramThreadReplyRoutesToOpenThread(t *testing.T) {
 		threadReplyOK:     true,
 		threadReplyReturn: session.TelegramThread{ChatID: 1001, ThreadID: 4, Status: session.TelegramThreadStatusOpen},
 	}
-	routed, handled, err := resolveTelegramThreadReply(context.Background(), sender, router, core.InboundMessage{
+	routed, handled, err := telegramcommands.ResolveTelegramThreadReply(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
@@ -488,7 +489,7 @@ func TestTelegramThreadReplyRoutesToOpenThread(t *testing.T) {
 		Text:      "continue that work",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadReply() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadReply() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want routed message to continue through ingress")
@@ -510,7 +511,7 @@ func TestTelegramThreadReplyLeavesSlashCommandGlobal(t *testing.T) {
 		threadReplyOK:     true,
 		threadReplyReturn: session.TelegramThread{ChatID: 1001, ThreadID: 4, Status: session.TelegramThreadStatusOpen},
 	}
-	routed, handled, err := resolveTelegramThreadReply(context.Background(), sender, router, core.InboundMessage{
+	routed, handled, err := telegramcommands.ResolveTelegramThreadReply(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
@@ -518,7 +519,7 @@ func TestTelegramThreadReplyLeavesSlashCommandGlobal(t *testing.T) {
 		Text:      "/status",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadReply() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadReply() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want slash command to remain global")
@@ -540,7 +541,7 @@ func TestTelegramThreadReplyToClosedThreadIsUserFacing(t *testing.T) {
 		threadReplyOK:     true,
 		threadReplyReturn: session.TelegramThread{ChatID: 1001, ThreadID: 4, Status: session.TelegramThreadStatusClosed},
 	}
-	_, handled, err := resolveTelegramThreadReply(context.Background(), sender, router, core.InboundMessage{
+	_, handled, err := telegramcommands.ResolveTelegramThreadReply(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
@@ -548,7 +549,7 @@ func TestTelegramThreadReplyToClosedThreadIsUserFacing(t *testing.T) {
 		Text:      "continue that work",
 	})
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadReply() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadReply() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want closed-thread reply handled with user-facing message")
@@ -565,7 +566,7 @@ func TestThreadsCommandDefaultsToOpenAndShowsNonOpenView(t *testing.T) {
 		{ChatID: 1001, ThreadID: 10, DisplaySlot: 1, Status: session.TelegramThreadStatusOpen, CreatedText: "open task"},
 		{ChatID: 1001, ThreadID: 9, ArchivedDisplayName: "1-2026-05-17", Status: session.TelegramThreadStatusClosed, CreatedText: "closed task"},
 	}
-	rendered, rows := renderTelegramThreadsPanel(threads, telegramPageViewList, 1)
+	rendered, rows := telegramcommands.RenderTelegramThreadsPanel(threads, telegramPageViewList, 1)
 	if !strings.Contains(rendered, "thread 1:") || strings.Contains(rendered, "1-2026-05-17") {
 		t.Fatalf("open view = %q, want only open display slot", rendered)
 	}
@@ -573,7 +574,7 @@ func TestThreadsCommandDefaultsToOpenAndShowsNonOpenView(t *testing.T) {
 		t.Fatalf("rows = %#v, want Show absorbed", rows)
 	}
 
-	rendered, rows = renderTelegramThreadsPanel(threads, telegramPageViewNonOpen, 1)
+	rendered, rows = telegramcommands.RenderTelegramThreadsPanel(threads, telegramPageViewNonOpen, 1)
 	if !strings.Contains(rendered, "1-2026-05-17: closed") || strings.Contains(rendered, "thread 1: open") {
 		t.Fatalf("non-open view = %q, want archived row only", rendered)
 	}
@@ -594,9 +595,9 @@ func TestAbsorbCommandResolvesOpenDisplaySlotToCanonicalThreadID(t *testing.T) {
 	sender := &stubCommandSender{}
 	msg := core.InboundMessage{ChatID: 1001, SenderID: 2002, MessageID: 3003, Text: "/absorb 1"}
 
-	handled, err := handleTelegramThreadCommand(context.Background(), sender, router, msg, "absorb")
+	handled, err := telegramcommands.HandleTelegramThreadCommand(context.Background(), sender, router, msg, "absorb")
 	if err != nil {
-		t.Fatalf("handleTelegramThreadCommand() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramThreadCommand() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -617,9 +618,9 @@ func TestThreadPrefixResolvesOpenDisplaySlotToCanonicalThreadID(t *testing.T) {
 	sender := &stubCommandSender{}
 	msg := core.InboundMessage{ChatID: 1001, SenderID: 2002, MessageID: 3003, Text: "(thread 1) continue the work"}
 
-	routed, handled, err := resolveTelegramThreadPrefix(context.Background(), sender, router, msg)
+	routed, handled, err := telegramcommands.ResolveTelegramThreadPrefix(context.Background(), sender, router, msg)
 	if err != nil {
-		t.Fatalf("resolveTelegramThreadPrefix() err = %v", err)
+		t.Fatalf("telegramcommands.ResolveTelegramThreadPrefix() err = %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true, want routed message to continue")
@@ -638,14 +639,14 @@ func TestThreadsCommandListsPromoteButtons(t *testing.T) {
 			{ChatID: 1001, ThreadID: 42, DisplaySlot: 1, Status: session.TelegramThreadStatusOpen, CreatedText: "promote this lane"},
 		},
 	}
-	handled, err := handleTelegramThreadCommand(context.Background(), sender, router, core.InboundMessage{
+	handled, err := telegramcommands.HandleTelegramThreadCommand(context.Background(), sender, router, core.InboundMessage{
 		ChatID:    1001,
 		SenderID:  2002,
 		MessageID: 3003,
 		Text:      "/threads",
 	}, "threads")
 	if err != nil {
-		t.Fatalf("handleTelegramThreadCommand() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramThreadCommand() err = %v", err)
 	}
 	if !handled || len(sender.inline) != 1 {
 		t.Fatalf("handled=%t inline=%d, want threads inline panel", handled, len(sender.inline))
@@ -670,15 +671,15 @@ func TestThreadPromoteCallbackCreatesDraftThroughRouter(t *testing.T) {
 	order := []string{}
 	sender := &stubCommandSender{}
 	router := &stubCommandRouter{canRestart: true, promoteThreadReturn: session.TelegramThreadPromotionResult{Text: "Promotion draft created for thread 3.\n\nHandoff: ignored-rendered-handoff\nStatus: draft", HandoffID: "thread-promotion:1001:3:99", ThreadID: 3, Status: session.TelegramThreadPromotionStatusDraft}, order: &order}
-	handled, err := handleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
+	handled, err := telegramcommands.HandleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
 		ID:       "promote-cb",
-		Data:     encodeTelegramThreadPromoteCallback(3),
+		Data:     telegramcommands.EncodeTelegramThreadPromoteCallback(3),
 		UpdateID: 707,
 		From:     &telegram.User{ID: 2002},
 		Message:  &telegram.Message{MessageID: 9004, Chat: &telegram.Chat{ID: 1001}},
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommandCallback() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommandCallback() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want promote callback handled")
@@ -715,14 +716,14 @@ func TestThreadPromoteCallbackIsAdminOnly(t *testing.T) {
 
 	sender := &stubCommandSender{}
 	router := &stubCommandRouter{canRestart: false}
-	handled, err := handleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
+	handled, err := telegramcommands.HandleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
 		ID:      "promote-cb",
-		Data:    encodeTelegramThreadPromoteCallback(3),
+		Data:    telegramcommands.EncodeTelegramThreadPromoteCallback(3),
 		From:    &telegram.User{ID: 2002},
 		Message: &telegram.Message{MessageID: 9004, Chat: &telegram.Chat{ID: 1001}},
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommandCallback() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommandCallback() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want admin-only callback handled")

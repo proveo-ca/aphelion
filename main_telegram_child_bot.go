@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"io"
 	"net/http"
 	"os"
@@ -233,7 +234,7 @@ func newTelegramChildBotRuntime(cfg *config.Config, store *session.SQLiteStore, 
 	if retrievalStore != nil {
 		tools.WithRetrievalStore(retrievalStore, cfg.OpenAI.VectorStores.DefaultStore)
 	}
-	var outbound aphruntime.OutboundSender = newTelegramUIClient(client)
+	var outbound aphruntime.OutboundSender = telegramruntime.NewUIClient(client)
 	if noSend {
 		outbound = telegramChildBotNoSendOutbound{}
 	}

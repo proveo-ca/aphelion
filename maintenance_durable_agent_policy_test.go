@@ -11,6 +11,7 @@ import (
 	"github.com/idolum-ai/aphelion/config"
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/durableagent"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/session"
 	_ "github.com/mattn/go-sqlite3"
@@ -93,10 +94,10 @@ func TestRunDurableAgentPolicyShowAndApply(t *testing.T) {
 	reviewID := events[0].ID
 
 	showOut, err := captureStdout(t, func() error {
-		return runDurableAgentPolicyCommand([]string{"--config", cfgPath, "--agent", "family-group", "show"})
+		return maintenancecli.RunDurableAgentPolicyCommand([]string{"--config", cfgPath, "--agent", "family-group", "show"})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentPolicyCommand(show) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentPolicyCommand(show) err = %v", err)
 	}
 	if !strings.Contains(showOut, "charter: Initial charter") || !strings.Contains(showOut, "outbound_mode: reply_with_policy_authorization") {
 		t.Fatalf("policy show output = %q, want initial policy", showOut)
@@ -106,7 +107,7 @@ func TestRunDurableAgentPolicyShowAndApply(t *testing.T) {
 	}
 
 	applyOut, err := captureStdout(t, func() error {
-		return runDurableAgentPolicyCommand([]string{
+		return maintenancecli.RunDurableAgentPolicyCommand([]string{
 			"--config", cfgPath,
 			"--agent", "family-group",
 			"--review-event", strconv.FormatInt(reviewID, 10),
@@ -116,7 +117,7 @@ func TestRunDurableAgentPolicyShowAndApply(t *testing.T) {
 		})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentPolicyCommand(apply) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentPolicyCommand(apply) err = %v", err)
 	}
 	if !strings.Contains(applyOut, "changed: true") || !strings.Contains(applyOut, "policy_version: 2") {
 		t.Fatalf("policy apply output = %q, want changed version 2", applyOut)
@@ -199,7 +200,7 @@ func TestRunDurableAgentForensicShowReadsRestrictedSidecar(t *testing.T) {
 	}
 
 	out, err := captureStdout(t, func() error {
-		return runDurableAgentForensicCommand([]string{
+		return maintenancecli.RunDurableAgentForensicCommand([]string{
 			"--config", cfgPath,
 			"--agent", "family-group",
 			"--ref", ref,
@@ -207,7 +208,7 @@ func TestRunDurableAgentForensicShowReadsRestrictedSidecar(t *testing.T) {
 		})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentForensicCommand(show) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentForensicCommand(show) err = %v", err)
 	}
 	if !strings.Contains(out, "payload.source_excerpt: Use this password: super-secret-123") {
 		t.Fatalf("forensic show output = %q, want preserved forensic payload", out)

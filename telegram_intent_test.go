@@ -3,6 +3,7 @@
 package main
 
 import (
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"testing"
 
 	"github.com/idolum-ai/aphelion/core"
@@ -23,9 +24,9 @@ func TestRewriteDurableWizardIntentLeavesNaturalLanguageUnchanged(t *testing.T) 
 			SenderName: "admin",
 			Text:       text,
 		}
-		got := rewriteDurableWizardIntent(msg, router)
+		got := telegramruntime.RewriteDurableWizardIntent(msg, router)
 		if got.Text != msg.Text {
-			t.Fatalf("rewriteDurableWizardIntent(%q) = %q, want unchanged", text, got.Text)
+			t.Fatalf("telegramruntime.RewriteDurableWizardIntent(%q) = %q, want unchanged", text, got.Text)
 		}
 	}
 }
@@ -40,9 +41,9 @@ func TestRewriteDurableWizardIntentDoesNotRewriteNonAdmin(t *testing.T) {
 		Text:     "create a durable child agent for me",
 	}
 
-	got := rewriteDurableWizardIntent(msg, router)
+	got := telegramruntime.RewriteDurableWizardIntent(msg, router)
 	if got.Text != msg.Text {
-		t.Fatalf("rewriteDurableWizardIntent() = %q, want unchanged %q", got.Text, msg.Text)
+		t.Fatalf("telegramruntime.RewriteDurableWizardIntent() = %q, want unchanged %q", got.Text, msg.Text)
 	}
 }
 
@@ -56,18 +57,18 @@ func TestRewriteDurableWizardIntentDoesNotRewriteSlashCommand(t *testing.T) {
 		Text:     "/status",
 	}
 
-	got := rewriteDurableWizardIntent(msg, router)
+	got := telegramruntime.RewriteDurableWizardIntent(msg, router)
 	if got.Text != msg.Text {
-		t.Fatalf("rewriteDurableWizardIntent() = %q, want unchanged slash command %q", got.Text, msg.Text)
+		t.Fatalf("telegramruntime.RewriteDurableWizardIntent() = %q, want unchanged slash command %q", got.Text, msg.Text)
 	}
 }
 
 func TestParseDurableRelayIntentParsesAgentPrefix(t *testing.T) {
 	t.Parallel()
 
-	agentID, body, ok := parseDurableRelayIntent("agent:family-group hello there")
+	agentID, body, ok := telegramruntime.ParseDurableRelayIntent("agent:family-group hello there")
 	if !ok {
-		t.Fatal("parseDurableRelayIntent() ok = false, want true")
+		t.Fatal("telegramruntime.ParseDurableRelayIntent() ok = false, want true")
 	}
 	if agentID != "family-group" {
 		t.Fatalf("agentID = %q, want family-group", agentID)
@@ -85,7 +86,7 @@ func TestRewriteDurableRelayIntentSetsDurableAgentRouting(t *testing.T) {
 		SenderID: 1001,
 		Text:     "agent:family-group can you summarize this?",
 	}
-	got := rewriteDurableRelayIntent(msg)
+	got := telegramruntime.RewriteDurableRelayIntent(msg)
 	if got.DurableAgentID != "family-group" {
 		t.Fatalf("DurableAgentID = %q, want family-group", got.DurableAgentID)
 	}
@@ -102,7 +103,7 @@ func TestRewriteDurableRelayIntentLeavesSlashCommandUntouched(t *testing.T) {
 		SenderID: 1001,
 		Text:     "/status",
 	}
-	got := rewriteDurableRelayIntent(msg)
+	got := telegramruntime.RewriteDurableRelayIntent(msg)
 	if got.DurableAgentID != "" {
 		t.Fatalf("DurableAgentID = %q, want empty", got.DurableAgentID)
 	}

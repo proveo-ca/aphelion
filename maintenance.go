@@ -3,8 +3,14 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"github.com/idolum-ai/aphelion/config"
+	"github.com/idolum-ai/aphelion/internal/standalonecli"
+	"github.com/idolum-ai/aphelion/session"
+	"io"
 	"os"
+	"time"
 
 	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	aphruntime "github.com/idolum-ai/aphelion/runtime"
@@ -53,7 +59,7 @@ func runMaintenanceCommand(args []string) (bool, error) {
 	case "authority":
 		return true, runAuthorityCommand(args[1:])
 	case "quickstart":
-		return true, runQuickstartCommand(args[1:])
+		return true, standalonecli.RunQuickstartCommand(args[1:])
 	case "init":
 		return true, runInitCommand(args[1:])
 	case "paths":
@@ -63,9 +69,9 @@ func runMaintenanceCommand(args []string) (bool, error) {
 	case "repair-live-state":
 		return true, runRepairLiveStateCommand(args[1:])
 	case "repair-capability-grants":
-		return true, runRepairCapabilityGrantsCommand(args[1:])
+		return true, maintenancecli.RunRepairCapabilityGrantsCommand(args[1:])
 	case "repair-review-redactions":
-		return true, runRepairReviewRedactionsCommand(args[1:])
+		return true, maintenancecli.RunRepairReviewRedactionsCommand(args[1:])
 	case "gc":
 		return true, maintenancecli.RunGCCommand(args[1:])
 	case "forget":
@@ -95,10 +101,53 @@ func runMaintenanceCommand(args []string) (bool, error) {
 	case "telegram-threads":
 		return true, maintenancecli.RunTelegramThreadsMaintenanceCommand(args[1:])
 	case "agency-eval":
-		return true, runAgencyEvalCommand(args[1:])
+		return true, standalonecli.RunAgencyEvalCommand(args[1:])
 	case "version":
-		return true, runVersionCommand(args[1:])
+		return true, standalonecli.RunVersionCommand(args[1:])
 	default:
 		return false, nil
 	}
+}
+
+func runRepairLiveStateCommand(args []string) error {
+	return maintenancecli.RunRepairLiveStateCommand(args, maintenanceLiveStateRepairDeps())
+}
+
+func maintenanceLiveStateRepairDeps() maintenancecli.LiveStateRepairDeps {
+	return maintenancecli.LiveStateRepairDeps{ParkActiveWorkForRestart: func(ctx context.Context, store *session.SQLiteStore, source string, now time.Time) (maintenancecli.RestartParkResult, error) {
+		park, err := aphruntime.ParkStoreActiveWorkForRestart(ctx, store, source, now)
+		return maintenancecli.RestartParkResult{
+			TurnRunsInterrupted:          park.TurnRunsInterrupted,
+			ContinuationsParked:          park.ContinuationsParked,
+			PendingContinuationsParked:   park.PendingContinuationsParked,
+			ApprovedContinuationsParked:  park.ApprovedContinuationsParked,
+			AlreadyParkedContinuations:   park.AlreadyParkedContinuations,
+			SkippedContinuations:         park.SkippedContinuations,
+			ExpiredApprovedContinuations: park.ExpiredApprovedContinuations,
+		}, err
+	}}
+}
+
+func maintenanceDurableAgentDeps() maintenancecli.DurableAgentDeps {
+	return maintenancecli.DurableAgentDeps{
+		RunRemote:        runDurableAgentRemoteCommand,
+		RunWake:          runDurableAgentWakeCommand,
+		RunChild:         runDurableAgentChildCommand,
+		DefaultBootstrap: defaultDurableAgentBootstrapFromConfig,
+	}
+}
+
+func runDurableAgentCommand(args []string) error {
+	return maintenancecli.RunDurableAgentCommand(args, maintenanceDurableAgentDeps())
+}
+
+func runDurableAgentReconcileCommand(args []string) error {
+	return maintenancecli.RunDurableAgentReconcileCommand(args, maintenanceDurableAgentDeps())
+}
+
+func reconcileDurableAgentsForConfig(cfg *config.Config, opts maintenancecli.DurableAgentReconcileOptions) (*maintenancecli.DurableAgentReconcileResult, error) {
+	return maintenancecli.ReconcileDurableAgentsForConfig(cfg, opts, maintenanceDurableAgentDeps())
+}
+func printDurableAgentReconcileResult(w io.Writer, result *maintenancecli.DurableAgentReconcileResult) {
+	maintenancecli.PrintDurableAgentReconcileResult(w, result)
 }

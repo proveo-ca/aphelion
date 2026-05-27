@@ -6,8 +6,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,6 +21,87 @@ const aphelionModulePath = "github.com/idolum-ai/aphelion"
 type architecturePackage struct {
 	ImportPath string
 	Imports    []string
+}
+
+func TestRootPackageHasNoShimFiles(t *testing.T) {
+	t.Parallel()
+
+	matches, err := filepath.Glob("*_shims.go")
+	if err != nil {
+		t.Fatalf("glob root shim files: %v", err)
+	}
+	if len(matches) > 0 {
+		t.Fatalf("root shim files are forbidden; found %s", strings.Join(matches, ", "))
+	}
+}
+
+func TestRootPackageDoesNotAliasInternalExportedTypes(t *testing.T) {
+	t.Parallel()
+
+	matches, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("glob root go files: %v", err)
+	}
+	fset := token.NewFileSet()
+	for _, path := range matches {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse imports for %s: %v", path, err)
+		}
+		internalImports := importedInternalPackageNames(file)
+		if len(internalImports) == 0 {
+			continue
+		}
+		file, err = parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				typeSpec, ok := spec.(*ast.TypeSpec)
+				if !ok || !typeSpec.Assign.IsValid() {
+					continue
+				}
+				sel, ok := typeSpec.Type.(*ast.SelectorExpr)
+				if !ok || !ast.IsExported(typeSpec.Name.Name) || !ast.IsExported(sel.Sel.Name) {
+					continue
+				}
+				ident, ok := sel.X.(*ast.Ident)
+				if ok && internalImports[ident.Name] {
+					t.Fatalf("%s aliases internal exported type %s = %s.%s; root back-compat aliases are forbidden", path, typeSpec.Name.Name, ident.Name, sel.Sel.Name)
+				}
+			}
+		}
+	}
+}
+
+func importedInternalPackageNames(file *ast.File) map[string]bool {
+	out := make(map[string]bool)
+	for _, imported := range file.Imports {
+		path := strings.Trim(imported.Path.Value, "\"")
+		if !strings.HasPrefix(path, aphelionModulePath+"/internal/") {
+			continue
+		}
+		name := ""
+		if imported.Name != nil {
+			name = strings.TrimSpace(imported.Name.Name)
+		}
+		if name == "" {
+			parts := strings.Split(path, "/")
+			name = parts[len(parts)-1]
+		}
+		if name != "" && name != "." && name != "_" {
+			out[name] = true
+		}
+	}
+	return out
 }
 
 func TestArchitectureImportBoundaries(t *testing.T) {

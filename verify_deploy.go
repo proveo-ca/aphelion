@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	"net/http"
 	"strings"
 	"time"
@@ -45,7 +46,7 @@ var deployVerificationRunner = verifyDeployment
 func verifyDeployDeps() standalonecli.VerifyDeployDeps {
 	return standalonecli.VerifyDeployDeps{
 		RuntimeBuilder:                      deployVerificationRuntimeBuilder,
-		TESRetentionConfigSafety:            tesRetentionConfigSafety,
+		TESRetentionConfigSafety:            maintenancecli.TESRetentionConfigSafety,
 		PrepareFilesystem:                   prepareFilesystem,
 		SyncConfiguredTelegramDurableGroups: syncConfiguredTelegramDurableGroups,
 	}

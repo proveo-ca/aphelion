@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"log"
 	"os"
 	"path/filepath"
@@ -68,7 +69,7 @@ func shouldAllowUnresolvedPrivateDurableRelayMessage(msg *telegram.Message) bool
 	if text == "" {
 		text = strings.TrimSpace(msg.Caption)
 	}
-	_, _, ok := parseDurableRelayIntent(text)
+	_, _, ok := telegramruntime.ParseDurableRelayIntent(text)
 	return ok
 }
 

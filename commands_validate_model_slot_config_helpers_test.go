@@ -331,16 +331,16 @@ func stubMissionState(id string, status session.MissionStatus) session.MissionSt
 	}
 }
 
-func (s *stubCommandRouter) MemoryReviewSnapshot(ctx context.Context, chatID int64, senderID int64, source memoryReviewSource) (memoryReviewSnapshot, error) {
+func (s *stubCommandRouter) MemoryReviewSnapshot(ctx context.Context, chatID int64, senderID int64, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
 	_ = ctx
 	s.memoryReviewChatID = chatID
 	s.memoryReviewSenderID = senderID
 	s.memoryReviewSource = source
 	if s.memoryReviewErr != nil {
-		return memoryReviewSnapshot{}, s.memoryReviewErr
+		return core.MemoryReviewSnapshot{}, s.memoryReviewErr
 	}
 	if s.memoryReviewBySource == nil {
-		return memoryReviewSnapshot{
+		return core.MemoryReviewSnapshot{
 			Source: source,
 			Query:  "default seed",
 		}, nil
@@ -348,13 +348,13 @@ func (s *stubCommandRouter) MemoryReviewSnapshot(ctx context.Context, chatID int
 	if snapshot, ok := s.memoryReviewBySource[source]; ok {
 		return snapshot, nil
 	}
-	return memoryReviewSnapshot{
+	return core.MemoryReviewSnapshot{
 		Source: source,
 		Query:  "default seed",
 	}, nil
 }
 
-func (s *stubCommandRouter) MemoryReviewSnapshotForMessage(ctx context.Context, msg core.InboundMessage, source memoryReviewSource) (memoryReviewSnapshot, error) {
+func (s *stubCommandRouter) MemoryReviewSnapshotForMessage(ctx context.Context, msg core.InboundMessage, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
 	s.memoryReviewMessage = msg
 	return s.MemoryReviewSnapshot(ctx, msg.ChatID, msg.SenderID, source)
 }

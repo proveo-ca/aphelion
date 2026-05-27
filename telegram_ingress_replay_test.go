@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func TestReplayPendingTelegramIngressRequeuesAcceptedWorkBeforeOffset(t *testing
 
 	now := time.Date(2026, 5, 16, 11, 0, 0, 0, time.UTC)
 	if _, err := store.RecordTelegramIngressAccepted(session.TelegramIngressUpdateRecord{
-		Surface:     telegramPrimaryIngressSurface,
+		Surface:     telegramruntime.PrimaryIngressSurface,
 		UpdateID:    77,
 		UpdateKind:  "message",
 		ChatID:      7001,
@@ -43,22 +44,22 @@ func TestReplayPendingTelegramIngressRequeuesAcceptedWorkBeforeOffset(t *testing
 	}
 
 	var handled []core.InboundMessage
-	checkpoint := newTelegramIngressCheckpoint(store, telegramPrimaryIngressSurface)
-	err = replayPendingTelegramIngress(context.Background(), store, checkpoint, func(_ context.Context, msg core.InboundMessage) error {
+	checkpoint := telegramruntime.NewIngressCheckpoint(store, telegramruntime.PrimaryIngressSurface)
+	err = telegramruntime.ReplayPendingIngress(context.Background(), store, checkpoint, func(_ context.Context, msg core.InboundMessage) error {
 		handled = append(handled, msg)
 		_, err := store.MarkTelegramIngressQueued(msg.IngressSurface, msg.IngressUpdateID, time.Now().UTC())
 		return err
-	}, telegramPrimaryIngressSurface, 10, nil)
+	}, telegramruntime.PrimaryIngressSurface, 10, nil)
 	if err != nil {
-		t.Fatalf("replayPendingTelegramIngress() err = %v", err)
+		t.Fatalf("telegramruntime.ReplayPendingIngress() err = %v", err)
 	}
-	if len(handled) != 1 || handled[0].IngressSurface != telegramPrimaryIngressSurface || handled[0].IngressUpdateID != 77 {
+	if len(handled) != 1 || handled[0].IngressSurface != telegramruntime.PrimaryIngressSurface || handled[0].IngressUpdateID != 77 {
 		t.Fatalf("handled = %#v, want replayed update 77 with ingress identity", handled)
 	}
-	if next, err := store.TelegramIngressNextUpdateID(telegramPrimaryIngressSurface); err != nil || next != 78 {
+	if next, err := store.TelegramIngressNextUpdateID(telegramruntime.PrimaryIngressSurface); err != nil || next != 78 {
 		t.Fatalf("TelegramIngressNextUpdateID() = %d, err=%v, want 78", next, err)
 	}
-	pending, err := store.PendingTelegramIngressUpdates(telegramPrimaryIngressSurface, 10)
+	pending, err := store.PendingTelegramIngressUpdates(telegramruntime.PrimaryIngressSurface, 10)
 	if err != nil {
 		t.Fatalf("PendingTelegramIngressUpdates() err = %v", err)
 	}
@@ -113,7 +114,7 @@ func TestStoppedQueuedTelegramIngressIsDroppedInsteadOfReplayed(t *testing.T) {
 
 	now := time.Date(2026, 5, 16, 13, 0, 0, 0, time.UTC)
 	if _, err := store.RecordTelegramIngressAccepted(session.TelegramIngressUpdateRecord{
-		Surface:     telegramPrimaryIngressSurface,
+		Surface:     telegramruntime.PrimaryIngressSurface,
 		UpdateID:    99,
 		UpdateKind:  "message",
 		ChatID:      7009,
@@ -133,7 +134,7 @@ func TestStoppedQueuedTelegramIngressIsDroppedInsteadOfReplayed(t *testing.T) {
 		SenderID:        1001,
 		MessageID:       2,
 		Text:            "queued",
-		IngressSurface:  telegramPrimaryIngressSurface,
+		IngressSurface:  telegramruntime.PrimaryIngressSurface,
 		IngressUpdateID: 99,
 	}); err != nil {
 		t.Fatalf("RouteAccepted() err = %v", err)
@@ -145,7 +146,7 @@ func TestStoppedQueuedTelegramIngressIsDroppedInsteadOfReplayed(t *testing.T) {
 	}
 	close(release)
 
-	record, ok, err := store.TelegramIngressUpdate(telegramPrimaryIngressSurface, 99)
+	record, ok, err := store.TelegramIngressUpdate(telegramruntime.PrimaryIngressSurface, 99)
 	if err != nil || !ok {
 		t.Fatalf("TelegramIngressUpdate() ok=%v err=%v", ok, err)
 	}
@@ -153,13 +154,13 @@ func TestStoppedQueuedTelegramIngressIsDroppedInsteadOfReplayed(t *testing.T) {
 		t.Fatalf("ingress status = %s, want dropped", record.Status)
 	}
 	replayed := false
-	checkpoint := newTelegramIngressCheckpoint(store, telegramPrimaryIngressSurface)
-	err = replayPendingTelegramIngress(context.Background(), store, checkpoint, func(context.Context, core.InboundMessage) error {
+	checkpoint := telegramruntime.NewIngressCheckpoint(store, telegramruntime.PrimaryIngressSurface)
+	err = telegramruntime.ReplayPendingIngress(context.Background(), store, checkpoint, func(context.Context, core.InboundMessage) error {
 		replayed = true
 		return nil
-	}, telegramPrimaryIngressSurface, 10, nil)
+	}, telegramruntime.PrimaryIngressSurface, 10, nil)
 	if err != nil {
-		t.Fatalf("replayPendingTelegramIngress() err = %v", err)
+		t.Fatalf("telegramruntime.ReplayPendingIngress() err = %v", err)
 	}
 	if replayed {
 		t.Fatal("dropped queued ingress replayed")
@@ -177,7 +178,7 @@ func TestReplayPendingTelegramIngressCompletesAcceptedCommandLikeUpdate(t *testi
 
 	now := time.Date(2026, 5, 16, 11, 30, 0, 0, time.UTC)
 	if _, err := store.RecordTelegramIngressAccepted(session.TelegramIngressUpdateRecord{
-		Surface:     telegramPrimaryIngressSurface,
+		Surface:     telegramruntime.PrimaryIngressSurface,
 		UpdateID:    88,
 		UpdateKind:  "message",
 		ChatID:      7002,
@@ -193,14 +194,14 @@ func TestReplayPendingTelegramIngressCompletesAcceptedCommandLikeUpdate(t *testi
 		t.Fatalf("RecordTelegramIngressAccepted() err = %v", err)
 	}
 
-	checkpoint := newTelegramIngressCheckpoint(store, telegramPrimaryIngressSurface)
-	err = replayPendingTelegramIngress(context.Background(), store, checkpoint, func(context.Context, core.InboundMessage) error {
+	checkpoint := telegramruntime.NewIngressCheckpoint(store, telegramruntime.PrimaryIngressSurface)
+	err = telegramruntime.ReplayPendingIngress(context.Background(), store, checkpoint, func(context.Context, core.InboundMessage) error {
 		return nil
-	}, telegramPrimaryIngressSurface, 10, nil)
+	}, telegramruntime.PrimaryIngressSurface, 10, nil)
 	if err != nil {
-		t.Fatalf("replayPendingTelegramIngress() err = %v", err)
+		t.Fatalf("telegramruntime.ReplayPendingIngress() err = %v", err)
 	}
-	pending, err := store.PendingTelegramIngressUpdates(telegramPrimaryIngressSurface, 10)
+	pending, err := store.PendingTelegramIngressUpdates(telegramruntime.PrimaryIngressSurface, 10)
 	if err != nil {
 		t.Fatalf("PendingTelegramIngressUpdates() err = %v", err)
 	}
@@ -218,7 +219,7 @@ func TestTelegramIngressCheckpointRecordsTerminalUpdateWithoutAcceptedRow(t *tes
 	}
 	defer store.Close()
 
-	checkpoint := newTelegramIngressCheckpoint(store, telegramPrimaryIngressSurface)
+	checkpoint := telegramruntime.NewIngressCheckpoint(store, telegramruntime.PrimaryIngressSurface)
 	now := time.Date(2026, 5, 16, 12, 15, 0, 0, time.UTC)
 	if err := checkpoint.RecordTerminal(context.Background(), telegram.PollerTerminal{
 		UpdateID:   901,
@@ -280,11 +281,11 @@ func TestStartupTelegramIngressReplaysEveryTypedWorkSurface(t *testing.T) {
 	}
 	defer store.Close()
 
-	surfaces := telegramStartupWorkSurfaces()
+	surfaces := telegramruntime.StartupWorkSurfaces()
 	if len(surfaces) != 8 {
 		t.Fatalf("startup work surfaces = %#v, want primary, thread summary, doctor, context/memory/mission clarification, busy resume, artifact resume", surfaces)
 	}
-	seenDefinitions := make(map[string]telegramWorkSurface)
+	seenDefinitions := make(map[string]telegramruntime.WorkSurface)
 	for i, workSurface := range surfaces {
 		if workSurface.Surface == "" || workSurface.Kind == "" || workSurface.Name == "" {
 			t.Fatalf("work surface[%d] = %#v, want named typed surface", i, workSurface)
@@ -324,15 +325,15 @@ func TestStartupTelegramIngressReplaysEveryTypedWorkSurface(t *testing.T) {
 	}
 
 	seenReplay := make(map[string]core.InboundMessage)
-	checkpoint, err := replayStartupTelegramIngress(context.Background(), store, func(_ context.Context, msg core.InboundMessage) error {
+	checkpoint, err := telegramruntime.ReplayStartupIngress(context.Background(), store, func(_ context.Context, msg core.InboundMessage) error {
 		seenReplay[msg.IngressSurface] = msg
 		return nil
 	}, nil)
 	if err != nil {
-		t.Fatalf("replayStartupTelegramIngress() err = %v", err)
+		t.Fatalf("telegramruntime.ReplayStartupIngress() err = %v", err)
 	}
 	if checkpoint == nil {
-		t.Fatal("replayStartupTelegramIngress() checkpoint = nil")
+		t.Fatal("telegramruntime.ReplayStartupIngress() checkpoint = nil")
 	}
 	if next, err := checkpoint.NextUpdateID(context.Background()); err != nil || next != 801 {
 		t.Fatalf("primary checkpoint next = %d err=%v, want 801", next, err)

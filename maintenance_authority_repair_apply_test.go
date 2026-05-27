@@ -4,6 +4,7 @@ package main
 
 import (
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	"github.com/idolum-ai/aphelion/session"
 	"strings"
 	"testing"
@@ -127,7 +128,7 @@ func TestRunAuthorityRevokeGrantCommandRevokesExplicitGrantWithEvidence(t *testi
 	if !ok || grant.Status != session.CapabilityGrantStatusRevoked || grant.RevokedAt.IsZero() {
 		t.Fatalf("grant = %#v ok=%t, want revoked grant with timestamp", grant, ok)
 	}
-	events, err := store.LatestExecutionEventsBySession(maintenanceRepairKey(), 10)
+	events, err := store.LatestExecutionEventsBySession(maintenancecli.MaintenanceRepairKey(), 10)
 	if err != nil {
 		t.Fatalf("LatestExecutionEventsBySession() err = %v", err)
 	}

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
@@ -33,7 +34,7 @@ func (c telegramCommandControl) controlFacade() telegramcontrol.CommandControl {
 			return core.StopResult{ContinuationRevoked: revoke.Revoked, ContinuationLabel: revoke.ContinuationLabel}, nil
 		}
 		facade.RevokeContinuationForMessage = func(msg core.InboundMessage) (core.StopResult, error) {
-			revoke, err := c.rt.RevokeContinuationForKey(session.SessionKey{ChatID: msg.ChatID, UserID: 0, Scope: telegramCommandMessageScope(msg)})
+			revoke, err := c.rt.RevokeContinuationForKey(session.SessionKey{ChatID: msg.ChatID, UserID: 0, Scope: telegramruntime.CommandMessageScope(msg)})
 			if err != nil {
 				return core.StopResult{}, err
 			}
@@ -134,10 +135,10 @@ func (c telegramCommandControl) LatestDoctorReport(ctx context.Context, chatID i
 	return c.controlFacade().LatestDoctorReport(ctx, chatID, senderID)
 }
 
-func (c telegramCommandControl) MemoryReviewSnapshot(ctx context.Context, chatID int64, senderID int64, source memoryReviewSource) (memoryReviewSnapshot, error) {
+func (c telegramCommandControl) MemoryReviewSnapshot(ctx context.Context, chatID int64, senderID int64, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
 	return c.controlFacade().MemoryReviewSnapshot(ctx, chatID, senderID, core.MemoryReviewSource(source))
 }
-func (c telegramCommandControl) MemoryReviewSnapshotForMessage(ctx context.Context, msg core.InboundMessage, source memoryReviewSource) (memoryReviewSnapshot, error) {
+func (c telegramCommandControl) MemoryReviewSnapshotForMessage(ctx context.Context, msg core.InboundMessage, source core.MemoryReviewSource) (core.MemoryReviewSnapshot, error) {
 	return c.controlFacade().MemoryReviewSnapshotForMessage(ctx, msg, core.MemoryReviewSource(source))
 }
 func (c telegramCommandControl) MissionCommand(ctx context.Context, chatID int64, senderID int64, args string) (string, error) {

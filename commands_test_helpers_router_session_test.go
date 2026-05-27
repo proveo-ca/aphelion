@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"strings"
 	"time"
 )
@@ -113,7 +114,7 @@ func (s *stubCommandRouter) StatusChatForMessage(msg core.InboundMessage) (core.
 		snapshot.ChatID = msg.ChatID
 	}
 	if snapshot.SessionID == "" {
-		snapshot.SessionID = telegramSessionTargetForMessage(msg).SessionID
+		snapshot.SessionID = telegramruntime.SessionTargetForMessage(msg).SessionID
 	}
 	return snapshot, nil
 }
