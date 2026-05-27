@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -65,7 +66,9 @@ func (r *Registry) requireCodexImageGenerationAccess(p principal.Principal, key 
 	}
 	useRef, err := r.authorityUseRefForGrant(codexImageGenerationToolName, key)
 	if err != nil {
-		_ = r.recordCodexImageGenerationInvocation(grant, p, useRef, "blocked", err.Error())
+		if recordErr := r.recordCodexImageGenerationInvocation(grant, p, useRef, "blocked", err.Error()); recordErr != nil {
+			return grant, useRef, errors.Join(err, recordErr)
+		}
 		return grant, useRef, err
 	}
 	return grant, useRef, nil
@@ -92,7 +95,9 @@ func (r *Registry) codexImageGeneration(ctx context.Context, input json.RawMessa
 	tools := []agent.ToolDef{{Name: "image_generation", Parameters: codexImageGenerationBuiltinParams(outputFormat)}}
 	resp, err := r.codexImageGenerationProvider.Complete(ctx, messages, tools)
 	if err != nil {
-		_ = r.recordCodexImageGenerationInvocation(grant, p, useRef, "failed", err.Error())
+		if recordErr := r.recordCodexImageGenerationInvocation(grant, p, useRef, "failed", err.Error()); recordErr != nil {
+			return codexImageGenerationBlocker("blocked", err.Error(), grant.GrantID), errors.Join(err, recordErr)
+		}
 		return codexImageGenerationBlocker("blocked", err.Error(), grant.GrantID), err
 	}
 	if len(resp.Media) == 0 {
@@ -100,15 +105,22 @@ func (r *Registry) codexImageGeneration(ctx context.Context, input json.RawMessa
 		if strings.TrimSpace(resp.Content) != "" {
 			reason += ": " + strings.TrimSpace(resp.Content)
 		}
-		_ = r.recordCodexImageGenerationInvocation(grant, p, useRef, "failed", reason)
-		return codexImageGenerationBlocker("blocked", reason, grant.GrantID), fmt.Errorf("%s", reason)
+		err := fmt.Errorf("%s", reason)
+		if recordErr := r.recordCodexImageGenerationInvocation(grant, p, useRef, "failed", reason); recordErr != nil {
+			return codexImageGenerationBlocker("blocked", reason, grant.GrantID), errors.Join(err, recordErr)
+		}
+		return codexImageGenerationBlocker("blocked", reason, grant.GrantID), err
 	}
 	artifacts, err := materializeCodexImageGenerationMedia(scope, resp.Media)
 	if err != nil {
-		_ = r.recordCodexImageGenerationInvocation(grant, p, useRef, "failed", err.Error())
+		if recordErr := r.recordCodexImageGenerationInvocation(grant, p, useRef, "failed", err.Error()); recordErr != nil {
+			return codexImageGenerationBlocker("blocked", err.Error(), grant.GrantID), errors.Join(err, recordErr)
+		}
 		return codexImageGenerationBlocker("blocked", err.Error(), grant.GrantID), err
 	}
-	_ = r.recordCodexImageGenerationInvocation(grant, p, useRef, "completed", "")
+	if err := r.recordCodexImageGenerationInvocation(grant, p, useRef, "completed", ""); err != nil {
+		return renderCodexImageGenerationResult(artifacts, grant.GrantID, resp.Content), err
+	}
 	return renderCodexImageGenerationResult(artifacts, grant.GrantID, resp.Content), nil
 }
 

@@ -20,6 +20,8 @@ func TestToolEvidenceWritesDoNotDropErrors(t *testing.T) {
 		regexp.MustCompile(`(^|[^[:alnum:]_])_,\s*_\s*=\s*r\.store\.Upsert[A-Za-z0-9_]+\s*\(`),
 		regexp.MustCompile(`(^|[^[:alnum:]_])_\s*=\s*r\.append[A-Za-z0-9_]*Event\s*\(`),
 		regexp.MustCompile(`(^|[^[:alnum:]_])_,\s*_\s*=\s*r\.append[A-Za-z0-9_]*Event\s*\(`),
+		regexp.MustCompile(`(^|[^[:alnum:]_])_\s*=\s*r\.record[A-Za-z0-9_]*Invocation\s*\(`),
+		regexp.MustCompile(`(^|[^[:alnum:]_])_,\s*_\s*=\s*r\.record[A-Za-z0-9_]*Invocation\s*\(`),
 	}
 
 	var violations []string

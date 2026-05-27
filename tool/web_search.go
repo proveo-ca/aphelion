@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -262,18 +263,25 @@ func (r *Registry) webSearch(ctx context.Context, input json.RawMessage, _ sandb
 	}
 	in, req, policy, constraints, err := r.decodeWebSearchInput(grant, input)
 	if err != nil {
-		_ = r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error())
+		if recordErr := r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error()); recordErr != nil {
+			return renderWebSearchBlocker(err.Error(), grant.GrantID), errors.Join(err, recordErr)
+		}
 		return renderWebSearchBlocker(err.Error(), grant.GrantID), err
 	}
 	providers, err := r.webSearchProviderPlan(policy, constraints)
 	if err != nil {
-		_ = r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error())
+		if recordErr := r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error()); recordErr != nil {
+			return renderWebSearchBlocker(err.Error(), grant.GrantID), errors.Join(err, recordErr)
+		}
 		return renderWebSearchBlocker(err.Error(), grant.GrantID), err
 	}
 	if constraints.MaxQueriesPerInvocation > 0 && 1 > constraints.MaxQueriesPerInvocation {
 		reason := "web_search query budget exceeded"
-		_ = r.recordWebSearchInvocation(grant, p, useRef, "blocked", reason)
-		return renderWebSearchBlocker(reason, grant.GrantID), fmt.Errorf("%s", reason)
+		err := fmt.Errorf("%s", reason)
+		if recordErr := r.recordWebSearchInvocation(grant, p, useRef, "blocked", reason); recordErr != nil {
+			return renderWebSearchBlocker(reason, grant.GrantID), errors.Join(err, recordErr)
+		}
+		return renderWebSearchBlocker(reason, grant.GrantID), err
 	}
 	maxAttempts := constraints.MaxProviderAttemptsPerInvocation
 	if maxAttempts <= 0 {
@@ -323,7 +331,9 @@ func (r *Registry) webSearch(ctx context.Context, input json.RawMessage, _ sandb
 			ExternalContent:   webSearchExternalContent{Untrusted: true, Source: webSearchToolName, Provider: providerName},
 			Results:           items,
 		}
-		_ = r.recordWebSearchInvocation(grant, p, useRef, "completed", "")
+		if err := r.recordWebSearchInvocation(grant, p, useRef, "completed", ""); err != nil {
+			return marshalWebSearchOutput(out), err
+		}
 		return marshalWebSearchOutput(out), nil
 	}
 	status := "blocked"
@@ -343,8 +353,10 @@ func (r *Registry) webSearch(ctx context.Context, input json.RawMessage, _ sandb
 		ExternalContent:   webSearchExternalContent{Untrusted: true, Source: webSearchToolName},
 		Blocker:           blocker,
 	}
-	_ = r.recordWebSearchInvocation(grant, p, useRef, status, blocker)
-	return marshalWebSearchOutput(out), fmt.Errorf("%s", blocker)
+	if recordErr := r.recordWebSearchInvocation(grant, p, useRef, status, blocker); recordErr != nil {
+		return marshalWebSearchOutput(out), errors.Join(lastErr, recordErr)
+	}
+	return marshalWebSearchOutput(out), lastErr
 }
 
 func (r *Registry) requireWebSearchAccess(p principal.Principal, key session.SessionKey, input json.RawMessage) (session.CapabilityGrant, session.AuthorityUseRef, error) {
@@ -363,11 +375,15 @@ func (r *Registry) requireWebSearchAccess(p principal.Principal, key session.Ses
 	}
 	useRef, err := r.authorityUseRefForGrant(webSearchToolName, key)
 	if err != nil {
-		_ = r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error())
+		if recordErr := r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error()); recordErr != nil {
+			return grant, useRef, errors.Join(err, recordErr)
+		}
 		return grant, useRef, err
 	}
 	if err := validateCapabilityToolInvocationInput(grant, inputWithInvokeAction(input)); err != nil {
-		_ = r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error())
+		if recordErr := r.recordWebSearchInvocation(grant, p, useRef, "blocked", err.Error()); recordErr != nil {
+			return grant, useRef, errors.Join(err, recordErr)
+		}
 		return grant, useRef, err
 	}
 	return grant, useRef, nil
