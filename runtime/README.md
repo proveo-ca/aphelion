@@ -44,13 +44,13 @@ Authoritative split for maintenance turns (heartbeat/cron/recovery):
 - `interactive_like_assembly.go`: shared interactive-like turn assembly spine used by DM and durable-group turns
 - `interactive_dm_turn.go`: interactive DM species assembler boundary and one-turn construction
 - `maintenance_turn_assembly.go`: maintenance execution-family assembly boundary for heartbeat/cron/recovery turns
-- `turn*.go`, `durable_group.go`, `maintenance_turn.go`: adapters from runtime facts into `turn`
+- `turn.go`, `turn_finalize.go`, `turn_monitor_events.go`, `interactive_dm_turn.go`, `maintenance_turn.go`, `durable_wake_turn.go`: adapters from runtime facts into `turn`
 - `turn_coordinator_common.go`, `turn_coordinator_interactive.go`, `turn_coordinator_durable.go`: shared and species-specific coordinator adapters
 - `durable_wake.go`: pluggable durable wake ingress adapters and shared wake-turn substrate
 - `external_channel_runtime.go`: shared external-channel lifecycle helpers for poll due checks, command attempt/success/failure state, backoff, and adapter state containment
 - `codex_app_server_channel.go`: top-level wiring for the Codex app-server external-channel adapter; helper/client/artifact/work-event mechanics live in `runtime/codex/`
-- `durable_*.go`: durable-agent channel runtimes and channel adapters
-- `*_runtime_test.go`: runtime-domain integration suites (by concern)
+- `durable_group.go`, `durable_group_context.go`, `durable_group_review.go`, `durable_wake.go`, `durable_wake_loop.go`, `durable_wake_scheduled_review.go`: durable-agent channel runtimes and channel adapters
+- `interactive_dm_turn_runtime_test.go`, `durable_group_runtime_test.go`, `durable_wake_runtime_test.go`, `startup_recovery_runtime_test.go`, `status_runtime_test.go`, `doctor_runtime_test.go`: runtime-domain integration suites (by concern)
 
 ## Leaf Packages
 

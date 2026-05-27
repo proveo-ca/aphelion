@@ -6,19 +6,26 @@ Aphelion state is intentionally multi-surface.
 
 ## Surfaces
 
-- Visible transcript ledger in `session` (`user`/`assistant` scene text).
-- Floor sidecars and floor metadata attached per turn.
-- Plan state and operation state sidecars.
-- Review events and outbound delivery records.
-- Turn-run recovery records for startup repair.
-- Execution event timeline (`execution_events`) for ingress/turn/tool/delivery truth.
-- Telegram ingress offset, accepted-update, and poison-update ledgers.
+- Visible transcript ledger in `session` (`user`/`assistant` scene text):
+  canonical.
+- Floor sidecars and floor metadata attached per turn: canonical when recorded
+  on messages; `sessions.last_floor_*` is the operational current-state store.
+- Plan state and operation state sidecars: operational current-state stores.
+- Review events and outbound delivery records: pending review events are
+  operational current-state stores; delivered review events and outbound records
+  are canonical delivery evidence.
+- Turn-run recovery records for startup repair: operational current-state store.
+- Execution event timeline (`execution_events`) for ingress/turn/tool/delivery
+  truth: canonical.
+- Telegram ingress offset, accepted-update, and poison-update ledgers:
+  operational current-state stores for transport recovery.
 - Telegram work-surface registry in code for startup replay of primary messages,
-  callback work, and decision-resume work.
-- Telegram side-thread registry (`telegram_threads`) for per-chat work lanes.
+  callback work, and decision-resume work: compiled contract.
+- Telegram side-thread registry (`telegram_threads`) for per-chat work lanes:
+  operational current-state store.
 - Typed Telegram decision-resume rows (`pending_busy_decisions` and
   `pending_artifact_retention`) for prompts whose original turn may have been
-  interrupted before callback resolution.
+  interrupted before callback resolution: operational current-state stores.
 
 Code anchors:
 
