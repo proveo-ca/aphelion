@@ -50,7 +50,8 @@ Authoritative split for maintenance turns (heartbeat/cron/recovery):
 - `external_channel_runtime.go`: shared external-channel lifecycle helpers for poll due checks, command attempt/success/failure state, backoff, and adapter state containment
 - `codex_app_server_channel.go`: top-level wiring for the Codex app-server external-channel adapter; helper/client/artifact/work-event mechanics live in `runtime/codex/`
 - `durable_group.go`, `durable_group_context.go`, `durable_group_review.go`, `durable_wake.go`, `durable_wake_loop.go`, `durable_wake_scheduled_review.go`: durable-agent channel runtimes and channel adapters
-- `interactive_dm_turn_runtime_test.go`, `durable_group_runtime_test.go`, `durable_wake_runtime_test.go`, `startup_recovery_runtime_test.go`, `status_runtime_test.go`, `doctor_runtime_test.go`: runtime-domain integration suites (by concern)
+- `interactive_dm_turn_runtime_test.go`, `durable_group_runtime_test.go`, `durable_wake_runtime_test.go`, `startup_recovery_runtime_test.go`, `status_runtime_test.go`: runtime-domain integration suites (by concern)
+- `doctor_runtime_test.go`, `doctor_condense_config_test.go`, `mission_ask_test.go`, `mission_control_proposal_test.go`: runtime-root integration suites for doctor/mission leaf wiring; they stay beside the runtime shell because they exercise root `Runtime`, command/wrapper behavior, storage, delivery, and Telegram session routing around the leaves.
 
 ## Leaf Packages
 
