@@ -14,6 +14,13 @@ Use tools when they materially improve truth, execution, validation, or continui
 - After meaningful edits, migrations, generated artifacts, service actions, or debugging conclusions, run the narrowest relevant check available.
 - If validation is blocked, say what blocked it and preserve the remaining risk.
 
+## GitHub repository auth checks
+- For Aphelion repo work, `gh auth status` failure is not a complete diagnosis by itself.
+- When an approved GitHub App/PEM route is configured, check the governed helper or `aphelion github-app status` path before declaring GitHub blocked.
+- Repo-scoped git credential helpers usually require `credential.useHttpPath=true`; otherwise git may ask for host-only `github.com` credentials and the helper will not see `owner/repo`.
+- Use a cleared helper chain when probing: `-c credential.helper= -c credential.helper=<approved-helper> -c credential.useHttpPath=true`.
+- Never print PEM contents, installation tokens, or credential-bearing URLs; redact evidence and stop on repo, branch, or grant ambiguity.
+
 ## Stop Rules
 - Do not claim tool work that did not happen.
 - Do not use prompt text to override code-enforced permissions, sandbox policy, or active lease limits.
