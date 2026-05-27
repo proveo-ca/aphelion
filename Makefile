@@ -74,7 +74,7 @@ architecture:
 	fi
 	$(MAKE) docs-architecture
 	$(MAKE) public-readiness
-	go test . -run TestArchitectureImportBoundaries -count=1
+	go test . -run 'Test(Architecture|RootPackage)' -count=1
 
 public-readiness:
 	./scripts/check-public-readiness.sh

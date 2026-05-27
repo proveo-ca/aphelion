@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/runtime/codex"
 )
 
 func TestGenericExternalChannelWakeAdapterRecordsBlockedWhenChildReportsMissingMaterial(t *testing.T) {
@@ -284,7 +285,7 @@ func TestGenericExternalChannelWakeAdapterPollCadenceAndSupport(t *testing.T) {
 	if !adapter.Supports(core.DurableAgent{Status: "active", WakeupMode: "poll", ChannelConfig: core.DurableAgentChannelConfig{External: &core.DurableAgentExternalChannelConfig{Adapter: "child_adapter"}}}) {
 		t.Fatal("Supports(generic external adapter) = false, want true")
 	}
-	if adapter.Supports(core.DurableAgent{Status: "active", WakeupMode: "poll", ChannelConfig: core.DurableAgentChannelConfig{External: &core.DurableAgentExternalChannelConfig{Adapter: codexAppServerAdapterName}}}) {
+	if adapter.Supports(core.DurableAgent{Status: "active", WakeupMode: "poll", ChannelConfig: core.DurableAgentChannelConfig{External: &core.DurableAgentExternalChannelConfig{Adapter: codex.AdapterName}}}) {
 		t.Fatal("Supports(codex_app_server) = true, want specialized codex adapter to own it")
 	}
 	if adapter.Supports(core.DurableAgent{Status: "active", WakeupMode: "push", ChannelConfig: core.DurableAgentChannelConfig{External: &core.DurableAgentExternalChannelConfig{Adapter: "child_adapter"}}}) {

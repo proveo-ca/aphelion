@@ -18,7 +18,11 @@ import (
 	"github.com/idolum-ai/aphelion/config"
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/decision"
+	"github.com/idolum-ai/aphelion/internal/standalonecli"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
 	"github.com/idolum-ai/aphelion/internal/telegramcontrol"
+	"github.com/idolum-ai/aphelion/internal/telegramdecision"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"github.com/idolum-ai/aphelion/memory"
 	"github.com/idolum-ai/aphelion/openai"
 	"github.com/idolum-ai/aphelion/principal"
@@ -28,6 +32,7 @@ import (
 	"github.com/idolum-ai/aphelion/tool"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 	"github.com/idolum-ai/aphelion/voice"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -67,7 +72,7 @@ func run() error {
 		return nil
 	}
 	if topLevelVersionRequested(args) {
-		return runVersionCommand(topLevelVersionArgs(args))
+		return standalonecli.RunVersionCommand(topLevelVersionArgs(args))
 	}
 	if flagName, ok := unknownTopLevelFlag(args); ok {
 		return &cliUsageError{Text: renderUnknownFlagHelp(flagName)}
@@ -199,7 +204,7 @@ func run() error {
 		}
 	}
 
-	tgOutbound := newTelegramUIClient(tgClient)
+	tgOutbound := telegramruntime.NewUIClient(tgClient)
 
 	rt, err := runtime.New(cfg, store, llm, tools, tgOutbound)
 	if err != nil {
@@ -240,20 +245,20 @@ func run() error {
 	router := core.NewRouter(rt.AgentFunc())
 	router.SetEventHandler(rt.RouterEventHandler())
 	ingress := telegramcontrol.NewIngressSequencer(router, turnTimeout)
-	decisionBroker := newTelegramDecisionBrokerWithSummary(
+	decisionBroker := telegramdecision.NewBrokerWithSummaryAndUI(
 		tgOutbound,
 		func(ctx context.Context, pending decision.PendingDecision) string {
 			if pending.Kind != decision.KindProposalApproval || rt == nil {
 				return ""
 			}
-			return rt.StatusReadableSummary(ctx, "approval", renderPendingDecisionExpanded(pending))
+			return rt.StatusReadableSummary(ctx, "approval", telegramdecision.RenderPendingDecisionExpanded(pending))
 		},
-		telegramDecisionBrokerUIOptions{
+		telegramdecision.BrokerUIOptions{
 			ApprovalWindows: rt,
 			ThreadResolver:  store,
 			ThreadRecorder:  store,
 		},
-		decision.WithDurableStore(newTelegramDecisionDurableStore(store)),
+		decision.WithDurableStore(telegramdecision.NewDurableStore(store)),
 		decision.WithObserver(rt.DecisionEventObserver()),
 		decision.WithAutoResolver(rt.AutoResolveDecision),
 	)
@@ -283,19 +288,19 @@ func run() error {
 		return fmt.Errorf("load pending decisions: %w", err)
 	}
 	cancelDecisionLoad()
-	decisionHandler := newTelegramDecisionHandler(tgOutbound, commandControl, decisionBroker, store, rt)
-	execApprover := newTelegramExecApprover(tgOutbound, decisionBroker, rt)
+	decisionHandler := telegramdecision.NewDecisionHandler(tgOutbound, commandControl, decisionBroker, store, rt)
+	execApprover := telegramdecision.NewExecApprover(tgOutbound, decisionBroker, telegramdecision.DefaultExecApprovalTimeout, rt)
 	execApprover.SetPresentation(store)
 	tools.WithExecApprover(execApprover)
-	memoryApprover := newTelegramDurableMemoryDelegationApprover(tgOutbound, decisionBroker)
+	memoryApprover := telegramdecision.NewDurableMemoryDelegationApprover(tgOutbound, decisionBroker, telegramdecision.DefaultMemoryDelegationTimeout)
 	memoryApprover.SetPresentation(store)
 	tools.WithDurableMemoryDelegationApprover(memoryApprover)
-	snapshotApprover := newTelegramDurableSnapshotRestoreApprover(tgOutbound, decisionBroker)
+	snapshotApprover := telegramdecision.NewDurableSnapshotRestoreApprover(tgOutbound, decisionBroker, telegramdecision.DefaultSnapshotRestoreTimeout)
 	snapshotApprover.SetPresentation(store)
 	tools.WithDurableSnapshotRestoreApprover(snapshotApprover)
 
 	registerCtx, cancelRegister := context.WithTimeout(context.Background(), 15*time.Second)
-	if err := registerTelegramCommands(registerCtx, tgClient); err != nil {
+	if err := telegramcommands.RegisterTelegramCommands(registerCtx, tgClient); err != nil {
 		log.Printf("WARN telegram command registration failed: %v", err)
 	}
 	cancelRegister()
@@ -321,9 +326,9 @@ func run() error {
 	rt.StartNocturneLoop(ctx, log.Printf)
 
 	telegramHandler := func(parent context.Context, msg core.InboundMessage) error {
-		msg = rewriteDurableWizardIntent(msg, commandControl)
-		msg = rewriteDurableRelayIntent(msg)
-		if routed, handled, err := resolveTelegramThreadPrefix(parent, tgOutbound, commandControl, msg); err != nil {
+		msg = telegramruntime.RewriteDurableWizardIntent(msg, commandControl)
+		msg = telegramruntime.RewriteDurableRelayIntent(msg)
+		if routed, handled, err := telegramcommands.ResolveTelegramThreadPrefix(parent, tgOutbound, commandControl, msg); err != nil {
 			return err
 		} else if handled {
 			return nil
@@ -331,7 +336,7 @@ func run() error {
 			msg = routed
 		}
 		threadCommandPayload := false
-		if routed, retargeted, handled, err := resolveTelegramThreadStartCommand(parent, tgOutbound, commandControl, msg); err != nil {
+		if routed, retargeted, handled, err := telegramcommands.ResolveTelegramThreadStartCommand(parent, tgOutbound, commandControl, msg); err != nil {
 			return err
 		} else if handled {
 			return nil
@@ -340,7 +345,7 @@ func run() error {
 			threadCommandPayload = true
 		}
 		if !threadCommandPayload {
-			handled, err := handleTelegramCommand(parent, tgOutbound, commandControl, msg)
+			handled, err := telegramcommands.HandleTelegramCommand(parent, tgOutbound, commandControl, msg)
 			if err != nil {
 				return err
 			}
@@ -348,14 +353,14 @@ func run() error {
 				return nil
 			}
 		}
-		if routed, handled, err := resolveTelegramThreadReply(parent, tgOutbound, commandControl, msg); err != nil {
+		if routed, handled, err := telegramcommands.ResolveTelegramThreadReply(parent, tgOutbound, commandControl, msg); err != nil {
 			return err
 		} else if handled {
 			return nil
 		} else {
 			msg = routed
 		}
-		if handled, err := resolveTelegramAgentReply(parent, tgOutbound, commandControl, msg); err != nil {
+		if handled, err := telegramcommands.ResolveTelegramAgentReply(parent, tgOutbound, commandControl, msg); err != nil {
 			return err
 		} else if handled {
 			return nil
@@ -373,7 +378,7 @@ func run() error {
 
 		return commandControl.RouteAccepted(parent, msg)
 	}
-	checkpoint, err := replayStartupTelegramIngress(ctx, store, telegramHandler, log.Printf)
+	checkpoint, err := telegramruntime.ReplayStartupIngress(ctx, store, telegramHandler, log.Printf)
 	if err != nil {
 		return err
 	}
@@ -388,16 +393,16 @@ func run() error {
 		telegram.WithUnresolvedPrivatePredicate(shouldAllowUnresolvedPrivateDurableRelayMessage),
 		telegram.WithBotIdentity(botUser),
 		telegram.WithCheckpoint(checkpoint),
-		telegram.WithIngressSurface(telegramPrimaryIngressSurface),
+		telegram.WithIngressSurface(telegramruntime.PrimaryIngressSurface),
 		telegram.WithCallbackHandler(func(parent context.Context, cb telegram.CallbackQuery) error {
-			if handled, err := handleTelegramCommandCallback(parent, tgOutbound, commandControl, cb); err != nil {
-				commandControl.RecordTelegramCallbackError(callbackChatID(cb), "command", err)
+			if handled, err := telegramcommands.HandleTelegramCommandCallback(parent, tgOutbound, commandControl, cb); err != nil {
+				commandControl.RecordTelegramCallbackError(telegramdecision.CallbackChatID(cb), "command", err)
 				return err
 			} else if handled {
 				return nil
 			}
 			if err := decisionHandler.HandleCallbackQuery(parent, cb); err != nil {
-				commandControl.RecordTelegramCallbackError(callbackChatID(cb), "decision", err)
+				commandControl.RecordTelegramCallbackError(telegramdecision.CallbackChatID(cb), "decision", err)
 				return err
 			}
 			return nil

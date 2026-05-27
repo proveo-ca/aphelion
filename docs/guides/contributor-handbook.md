@@ -1,6 +1,6 @@
 # Contributor Handbook
 
-Aphelion is a small governed outpost, not a platform. Contributions should make
+Aphelion is a governed outpost, not a platform. Contributions should make
 the live operator path more legible, bounded, recoverable, or durable.
 
 Start with:

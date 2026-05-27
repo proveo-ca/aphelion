@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -115,10 +116,10 @@ func TestRunDurableAgentListShowsRegisteredAgents(t *testing.T) {
 	}
 
 	out, err := captureStdout(t, func() error {
-		return runDurableAgentListCommand([]string{"--config", cfgPath})
+		return maintenancecli.RunDurableAgentListCommand([]string{"--config", cfgPath})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentListCommand() err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentListCommand() err = %v", err)
 	}
 	if !strings.Contains(out, "action: durable-agent list") || !strings.Contains(out, "count: 2") {
 		t.Fatalf("durable-agent list output = %q, want action/count", out)
@@ -185,10 +186,10 @@ func TestRunDurableAgentHealthShowsStateAndEnrollment(t *testing.T) {
 	}
 
 	out, err := captureStdout(t, func() error {
-		return runDurableAgentHealthCommand([]string{"--config", cfgPath, "--agent", "family-group"})
+		return maintenancecli.RunDurableAgentHealthCommand([]string{"--config", cfgPath, "--agent", "family-group"})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentHealthCommand() err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentHealthCommand() err = %v", err)
 	}
 	for _, needle := range []string{
 		"action: durable-agent health",
@@ -264,7 +265,7 @@ func TestRunDurableAgentBootstrapWriteExportsRemoteBootstrap(t *testing.T) {
 
 	bootstrapPath := filepath.Join(root, "family-group-bootstrap.json")
 	out, err := captureStdout(t, func() error {
-		return runDurableAgentBootstrapCommand([]string{
+		return maintenancecli.RunDurableAgentBootstrapCommand([]string{
 			"--config", cfgPath,
 			"--agent", "family-group",
 			"--path", bootstrapPath,
@@ -274,7 +275,7 @@ func TestRunDurableAgentBootstrapWriteExportsRemoteBootstrap(t *testing.T) {
 		})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentBootstrapCommand(write) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentBootstrapCommand(write) err = %v", err)
 	}
 	if !strings.Contains(out, "action: durable-agent bootstrap write") || !strings.Contains(out, "agent_id: family-group") {
 		t.Fatalf("bootstrap write output = %q, want action and agent id", out)
@@ -362,20 +363,20 @@ func TestRunDurableAgentEnrollmentShowRevokeAndReactivate(t *testing.T) {
 	}
 
 	showOut, err := captureStdout(t, func() error {
-		return runDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "show"})
+		return maintenancecli.RunDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "show"})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentEnrollmentCommand(show) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentEnrollmentCommand(show) err = %v", err)
 	}
 	if !strings.Contains(showOut, "status: active") {
 		t.Fatalf("show output = %q, want active status", showOut)
 	}
 
 	revokeOut, err := captureStdout(t, func() error {
-		return runDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "revoke"})
+		return maintenancecli.RunDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "revoke"})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentEnrollmentCommand(revoke) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentEnrollmentCommand(revoke) err = %v", err)
 	}
 	if !strings.Contains(revokeOut, "status: revoked") {
 		t.Fatalf("revoke output = %q, want revoked status", revokeOut)
@@ -389,10 +390,10 @@ func TestRunDurableAgentEnrollmentShowRevokeAndReactivate(t *testing.T) {
 	}
 
 	reactivateOut, err := captureStdout(t, func() error {
-		return runDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "reactivate"})
+		return maintenancecli.RunDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "reactivate"})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentEnrollmentCommand(reactivate) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentEnrollmentCommand(reactivate) err = %v", err)
 	}
 	if !strings.Contains(reactivateOut, "status: active") {
 		t.Fatalf("reactivate output = %q, want active status", reactivateOut)
@@ -460,10 +461,10 @@ func TestRunDurableAgentEnrollmentRotateSecretAndDecommission(t *testing.T) {
 	}
 
 	rotateOut, err := captureStdout(t, func() error {
-		return runDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "--secret", "enroll-token-2", "rotate-secret"})
+		return maintenancecli.RunDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "--secret", "enroll-token-2", "rotate-secret"})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentEnrollmentCommand(rotate-secret) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentEnrollmentCommand(rotate-secret) err = %v", err)
 	}
 	if !strings.Contains(rotateOut, "status: active") {
 		t.Fatalf("rotate-secret output = %q, want active status", rotateOut)
@@ -477,10 +478,10 @@ func TestRunDurableAgentEnrollmentRotateSecretAndDecommission(t *testing.T) {
 	}
 
 	decommissionOut, err := captureStdout(t, func() error {
-		return runDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "decommission"})
+		return maintenancecli.RunDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "decommission"})
 	})
 	if err != nil {
-		t.Fatalf("runDurableAgentEnrollmentCommand(decommission) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentEnrollmentCommand(decommission) err = %v", err)
 	}
 	if !strings.Contains(decommissionOut, "status: decommissioned") {
 		t.Fatalf("decommission output = %q, want decommissioned status", decommissionOut)
@@ -493,10 +494,10 @@ func TestRunDurableAgentEnrollmentRotateSecretAndDecommission(t *testing.T) {
 		t.Fatalf("enrollment after decommission = %#v, want decommissioned with timestamp", enrollment)
 	}
 
-	if err := runDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "reactivate"}); err == nil {
-		t.Fatal("runDurableAgentEnrollmentCommand(reactivate) err = nil, want decommissioned refusal")
+	if err := maintenancecli.RunDurableAgentEnrollmentCommand([]string{"--config", cfgPath, "--agent", "family-group", "reactivate"}); err == nil {
+		t.Fatal("maintenancecli.RunDurableAgentEnrollmentCommand(reactivate) err = nil, want decommissioned refusal")
 	} else if !strings.Contains(err.Error(), "decommissioned") {
-		t.Fatalf("runDurableAgentEnrollmentCommand(reactivate) err = %v, want decommissioned refusal", err)
+		t.Fatalf("maintenancecli.RunDurableAgentEnrollmentCommand(reactivate) err = %v, want decommissioned refusal", err)
 	}
 }
 
@@ -557,7 +558,7 @@ func TestRunDurableAgentRemoteRunOnceSyncsAndUploadsArtifacts(t *testing.T) {
 
 	childDBPath := filepath.Join(root, "remote-child.db")
 	bootstrapPath := filepath.Join(root, "family-group-bootstrap.json")
-	if err := runDurableAgentBootstrapCommand([]string{
+	if err := maintenancecli.RunDurableAgentBootstrapCommand([]string{
 		"--config", parentCfgPath,
 		"--agent", "family-group",
 		"--path", bootstrapPath,
@@ -565,7 +566,7 @@ func TestRunDurableAgentRemoteRunOnceSyncsAndUploadsArtifacts(t *testing.T) {
 		"--enrollment-token", "enroll-token-1",
 		"write",
 	}); err != nil {
-		t.Fatalf("runDurableAgentBootstrapCommand(write) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentBootstrapCommand(write) err = %v", err)
 	}
 
 	messagePath := filepath.Join(root, "message.json")
@@ -697,7 +698,7 @@ func TestRunDurableAgentRemoteLoopProcessesQueuedMessages(t *testing.T) {
 
 	childDBPath := filepath.Join(root, "remote-child.db")
 	bootstrapPath := filepath.Join(root, "family-group-bootstrap.json")
-	if err := runDurableAgentBootstrapCommand([]string{
+	if err := maintenancecli.RunDurableAgentBootstrapCommand([]string{
 		"--config", parentCfgPath,
 		"--agent", "family-group",
 		"--path", bootstrapPath,
@@ -705,7 +706,7 @@ func TestRunDurableAgentRemoteLoopProcessesQueuedMessages(t *testing.T) {
 		"--enrollment-token", "enroll-token-1",
 		"write",
 	}); err != nil {
-		t.Fatalf("runDurableAgentBootstrapCommand(write) err = %v", err)
+		t.Fatalf("maintenancecli.RunDurableAgentBootstrapCommand(write) err = %v", err)
 	}
 
 	inboxDir := filepath.Join(root, "remote-inbox")

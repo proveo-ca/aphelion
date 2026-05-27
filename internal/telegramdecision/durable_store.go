@@ -13,7 +13,7 @@ import (
 	"github.com/idolum-ai/aphelion/session"
 )
 
-type telegramDecisionDurableStore struct {
+type durableStore struct {
 	store *session.SQLiteStore
 }
 
@@ -21,10 +21,10 @@ func newTelegramDecisionDurableStore(store *session.SQLiteStore) decision.Durabl
 	if store == nil {
 		return nil
 	}
-	return &telegramDecisionDurableStore{store: store}
+	return &durableStore{store: store}
 }
 
-func (s *telegramDecisionDurableStore) LoadPending(_ context.Context) ([]decision.DurableDecision, error) {
+func (s *durableStore) LoadPending(_ context.Context) ([]decision.DurableDecision, error) {
 	if s == nil || s.store == nil {
 		return nil, nil
 	}
@@ -71,7 +71,7 @@ func (s *telegramDecisionDurableStore) LoadPending(_ context.Context) ([]decisio
 	return out, nil
 }
 
-func (s *telegramDecisionDurableStore) UpsertPending(_ context.Context, pending decision.DurableDecision) error {
+func (s *durableStore) UpsertPending(_ context.Context, pending decision.DurableDecision) error {
 	if s == nil || s.store == nil {
 		return nil
 	}
@@ -106,28 +106,28 @@ func (s *telegramDecisionDurableStore) UpsertPending(_ context.Context, pending 
 	})
 }
 
-func (s *telegramDecisionDurableStore) DeletePending(_ context.Context, id string) error {
+func (s *durableStore) DeletePending(_ context.Context, id string) error {
 	if s == nil || s.store == nil {
 		return nil
 	}
 	return s.store.DeletePendingDecision(id)
 }
 
-func (s *telegramDecisionDurableStore) DetachByOwner(_ context.Context, ownerKey string) (int, error) {
+func (s *durableStore) DetachByOwner(_ context.Context, ownerKey string) (int, error) {
 	if s == nil || s.store == nil {
 		return 0, nil
 	}
 	return s.store.DeletePendingDecisionsByOwner(ownerKey)
 }
 
-func (s *telegramDecisionDurableStore) DetachByChatSender(_ context.Context, chatID int64, senderID int64) (int, error) {
+func (s *durableStore) DetachByChatSender(_ context.Context, chatID int64, senderID int64) (int, error) {
 	if s == nil || s.store == nil {
 		return 0, nil
 	}
 	return s.store.DeletePendingDecisionsByChatSender(chatID, senderID)
 }
 
-func (s *telegramDecisionDurableStore) DetachAll(_ context.Context) (int, error) {
+func (s *durableStore) DetachAll(_ context.Context) (int, error) {
 	if s == nil || s.store == nil {
 		return 0, nil
 	}

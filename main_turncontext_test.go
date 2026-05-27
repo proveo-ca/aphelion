@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"path/filepath"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func TestTelegramCommandControlQueueReinstallUsesDurableAcceptedRoute(t *testing
 
 	now := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
 	if _, err := store.RecordTelegramIngressAccepted(session.TelegramIngressUpdateRecord{
-		Surface:     telegramPrimaryIngressSurface,
+		Surface:     telegramruntime.PrimaryIngressSurface,
 		UpdateID:    701,
 		UpdateKind:  "message",
 		ChatID:      1001,
@@ -86,7 +87,7 @@ func TestTelegramCommandControlQueueReinstallUsesDurableAcceptedRoute(t *testing
 		SenderID:        2002,
 		MessageID:       3003,
 		Text:            "/reinstall",
-		IngressSurface:  telegramPrimaryIngressSurface,
+		IngressSurface:  telegramruntime.PrimaryIngressSurface,
 		IngressUpdateID: 701,
 	}); err != nil {
 		t.Fatalf("QueueReinstall() err = %v", err)
@@ -94,7 +95,7 @@ func TestTelegramCommandControlQueueReinstallUsesDurableAcceptedRoute(t *testing
 	if routed.Text != reinstallTemplateMessage || routed.Raw != nil {
 		t.Fatalf("routed reinstall = %#v, want templated durable message without raw Telegram payload", routed)
 	}
-	record, ok, err := store.TelegramIngressUpdate(telegramPrimaryIngressSurface, 701)
+	record, ok, err := store.TelegramIngressUpdate(telegramruntime.PrimaryIngressSurface, 701)
 	if err != nil || !ok {
 		t.Fatalf("TelegramIngressUpdate() ok=%t err=%v", ok, err)
 	}
@@ -114,7 +115,7 @@ func TestTelegramCommandControlRouteAcceptedDoesNotRedispatchTerminalIngress(t *
 
 	now := time.Date(2026, 5, 16, 12, 5, 0, 0, time.UTC)
 	if err := store.RecordTelegramIngressTerminal(session.TelegramIngressUpdateRecord{
-		Surface:     telegramPrimaryIngressSurface,
+		Surface:     telegramruntime.PrimaryIngressSurface,
 		UpdateID:    702,
 		UpdateKind:  "message",
 		ChatID:      1001,
@@ -137,7 +138,7 @@ func TestTelegramCommandControlRouteAcceptedDoesNotRedispatchTerminalIngress(t *
 		SenderID:        2002,
 		MessageID:       3004,
 		Text:            "redelivered",
-		IngressSurface:  telegramPrimaryIngressSurface,
+		IngressSurface:  telegramruntime.PrimaryIngressSurface,
 		IngressUpdateID: 702,
 	}); err != nil {
 		t.Fatalf("RouteAccepted() err = %v", err)
@@ -162,7 +163,7 @@ func TestTelegramCommandControlEnsureDoctorIngressQueuedCreatesRecoverableCallba
 		SenderID:        2002,
 		MessageID:       77,
 		Text:            "/health diagnose",
-		IngressSurface:  telegramDoctorIngressSurface,
+		IngressSurface:  telegramruntime.DoctorIngressSurface,
 		IngressUpdateID: 703,
 	})
 	if err != nil {
@@ -171,7 +172,7 @@ func TestTelegramCommandControlEnsureDoctorIngressQueuedCreatesRecoverableCallba
 	if !dispatch {
 		t.Fatal("dispatch = false, want newly accepted callback work dispatchable")
 	}
-	record, ok, err := store.TelegramIngressUpdate(telegramDoctorIngressSurface, 703)
+	record, ok, err := store.TelegramIngressUpdate(telegramruntime.DoctorIngressSurface, 703)
 	if err != nil || !ok {
 		t.Fatalf("TelegramIngressUpdate(doctor) ok=%t err=%v", ok, err)
 	}

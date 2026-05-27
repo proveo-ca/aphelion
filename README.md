@@ -7,7 +7,7 @@ License: Apache-2.0.
 Aphelion exists for the moment when a conversation has to touch the world: a
 file, a service, a memory, a machine far from the laptop. Before capability
 becomes action, Aphelion makes authority explicit. It keeps a Telegram radio
-link to a small Linux service, records consent and execution as typed evidence,
+link to a local Linux service, records consent and execution as typed evidence,
 and gives the operator short paths to ask, act, stop, recover, and inspect what
 happened.
 
@@ -20,8 +20,8 @@ or a broad channel platform.
 
 ## Principles
 
-- **Outpost, not platform.** Keep the system small enough to understand and
-  durable enough to trust.
+- **Outpost, not platform.** Keep the system legible enough to govern,
+  composable enough to understand under pressure, and durable enough to trust.
 - **Radio link, not omnichannel.** Telegram is the primary operator channel; the
   CLI and systemd remain the local repair tools.
 - **Ledger, not vibes.** Authority, consent, leases, grants, and evidence are
@@ -35,6 +35,13 @@ or a broad channel platform.
 The full design direction lives in
 [docs/architecture/design-principles.md](docs/architecture/design-principles.md).
 
+Aphelion is not small in the absolute sense. Its current surface includes
+channels, providers, tools, storage, service management, voice, automation, work
+lanes, inspection, credentials, durable agents, Tailnet and remote-host
+support, missions, and GitHub App helpers. The outpost constraint is therefore
+not minimal LOC or a tiny feature list. It is that every surface remains locally
+operable, authority-bounded, evidence-producing, and explainable without turning
+into a general agent marketplace or broad channel platform.
 
 ## Public Release Provenance
 
@@ -58,35 +65,35 @@ policy.
 
 ## Current Surface
 
-The public surface is intentionally narrow:
+The public surface is broad, but it is grouped into a few governed operator
+lanes:
 
-- **Channel:** Telegram radio link for live work, approvals, status, recovery,
-  and evidence.
-- **Providers:** Anthropic, OpenAI, OpenRouter, Google Gemini, local Ollama.
-- **Tools:** exec, scoped native file/search/fetch tools, curated memory,
-  session recall, optional OpenAI storage tools.
-- **Storage:** SQLite sessions, file-based memory, execution evidence.
-- **Service:** Linux user service through bundled install/update scripts.
-- **Voice:** Telegram voice transcription and optional ElevenLabs TTS replies.
-- **Automation:** heartbeat, cron, bounded auto-approval leases.
-- **Work lanes:** main chat plus side threads for parallel work, each with its
-  own context, progress, approvals, and recovery state.
-- **Inspection:** read-only `/context` and `/memory` panels, mission objective
-  review, and admin model-routing controls in Telegram.
-- **Credentials:** optional GitHub App status and installation-token helper for
-  operator-maintained repository workflows.
-- **Durable agents:** configured durable children, install-owned daily-review
-  recipe, Telegram group admission, Tailnet child provisioning, health and
-  inventory surfaces.
+- **Operator channel and inspection:** Telegram approvals, status, recovery,
+  evidence, `/context`, `/memory`, mission review, and model-routing controls.
+- **Models, voice, and tools:** Anthropic, OpenAI, OpenRouter, Gemini, Ollama,
+  Telegram voice transcription, optional ElevenLabs replies, exec, scoped
+  file/search/fetch tools, curated memory, session recall, and optional OpenAI
+  storage.
+- **Persistence and evidence:** SQLite sessions, file-based memory, execution
+  evidence, and promise tracking.
+- **Automation and work lanes:** heartbeat, cron, bounded auto-approval leases,
+  main chat, and side threads with separate context, progress, approvals, and
+  recovery state.
+- **Service, credentials, and durable agents:** Linux user-service install/update
+  scripts, optional GitHub App token helper, configured durable children, daily
+  review recipes, Telegram group admission, Tailnet child provisioning, health,
+  and inventory surfaces.
 
 Current promise tracking lives in [docs/promises.md](docs/promises.md).
 
 ## Fast Install
 
-For a Telegram admin on Linux:
+For a Telegram admin on Linux, pin both the installer ref and release asset to
+the current public release tag:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/idolum-ai/aphelion/main/scripts/install-release.sh | bash
+APHELION_VERSION=v0.1.3
+curl -fsSL "https://raw.githubusercontent.com/idolum-ai/aphelion/${APHELION_VERSION}/scripts/install-release.sh" | bash -s -- "${APHELION_VERSION}"
 ~/.local/bin/aphelion quickstart --detect-admin --install-service
 ```
 

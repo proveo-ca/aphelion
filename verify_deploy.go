@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/config"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	"github.com/idolum-ai/aphelion/internal/standalonecli"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/runtime"
@@ -45,7 +46,7 @@ var deployVerificationRunner = verifyDeployment
 func verifyDeployDeps() standalonecli.VerifyDeployDeps {
 	return standalonecli.VerifyDeployDeps{
 		RuntimeBuilder:                      deployVerificationRuntimeBuilder,
-		TESRetentionConfigSafety:            tesRetentionConfigSafety,
+		TESRetentionConfigSafety:            maintenancecli.TESRetentionConfigSafety,
 		PrepareFilesystem:                   prepareFilesystem,
 		SyncConfiguredTelegramDurableGroups: syncConfiguredTelegramDurableGroups,
 	}

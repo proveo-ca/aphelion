@@ -2,14 +2,14 @@
 
 _Status: normative design direction._
 
-Aphelion is a minimal, governed outpost for personal agents. It is built for
-distance: distance from a laptop, distance across time, distance across trust
-boundaries, and distance between intention and action.
+Aphelion is a governed outpost for personal agents. It is built for distance:
+distance from a laptop, distance across time, distance across trust boundaries,
+and distance between intention and action.
 
 These principles define the shape of the system. They are not feature marketing.
 When implementation choices conflict, prefer the option that preserves the
-outpost: small, durable, legible, recoverable, and governed by explicit
-authority.
+outpost: locally operable, durable, legible, recoverable, and governed by
+explicit authority.
 
 ## Short Form
 
@@ -26,12 +26,19 @@ authority.
 
 ### Outpost, not platform
 
-Aphelion should stay small, durable, and operationally useful. It is not trying
-to become a generic agent marketplace, IDE, enterprise automation suite, or
-multi-channel assistant.
+Aphelion is no longer small in the absolute sense. Its implemented surface is
+broad enough that "small" must mean governable, composable, and legible relative
+to a general-agent platform, not minimal LOC or a tiny feature list.
+
+It is still an outpost when every surface remains locally operable,
+authority-bounded, evidence-producing, and diagnosable from the operator's
+control room. It stops being an outpost when capability turns into ambient
+platform gravity: open-ended channels, invisible authority, marketplace-style
+extension, or behavior that cannot be inspected and stopped.
 
 Favor narrow, dependable mechanisms over broad extension surfaces unless the
-extension is required for live personal-agent operation.
+extension is required for live personal-agent operation and has an explicit
+authority boundary, evidence path, and repair path.
 
 ### Radio link, not omnichannel
 

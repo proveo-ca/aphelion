@@ -8,7 +8,9 @@ The root package is the single-binary composition surface.
 
 - Owns CLI command dispatch, install/deploy entrypoints, and process startup.
 - Owns Telegram UI glue that adapts transport callbacks into runtime or decision
-  APIs.
+  APIs. Review-event Telegram decision callbacks are delegated to
+  `internal/telegramdecision`; root only assembles the transport/control
+  dependencies and dispatches into that boundary.
 - May import `runtime` and assemble concrete dependencies.
 - Should avoid owning durable domain behavior once a stable lower-level owner
   exists.
@@ -18,7 +20,7 @@ Code anchors:
 - [`main.go`](../../main.go)
 - [`commands.go`](../../commands.go)
 - [`maintenance.go`](../../maintenance.go)
-- [`telegram_decisions.go`](../../telegram_decisions.go)
+- [`internal/telegramdecision`](../../internal/telegramdecision) for review-event Telegram decision callback behavior.
 
 ## Runtime
 
@@ -39,6 +41,11 @@ Code anchors:
 - [`runtime/maintenance_turn_assembly.go`](../../runtime/maintenance_turn_assembly.go)
 - [`runtime/maintenance_turn.go`](../../runtime/maintenance_turn.go)
 - [`runtime/durable_group.go`](../../runtime/durable_group.go)
+- [`runtime/codex`](../../runtime/codex) for Codex app-server leaf helpers consumed only by the runtime shell.
+- [`runtime/doctor`](../../runtime/doctor) for `/doctor` report assembly, evidence sections, Telegram condensation helpers, and maintainer artifact formatting consumed only by the runtime shell.
+- [`runtime/mission`](../../runtime/mission) for Mission Ledger command rendering, Mission Question prompt/classifier mechanics, and mission proposal formatting consumed only by the runtime shell.
+
+Runtime leaf subpackages may be imported by top-level `runtime` for bounded helper mechanics. They must not become new owners for ingress/session/lifecycle wiring or broad runtime policy. The architecture import guard forbids non-root packages from importing `runtime` internals, which keeps these leaves private to the runtime shell rather than turning them into cross-repository domain APIs.
 
 ## Turn
 

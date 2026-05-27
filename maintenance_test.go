@@ -7,6 +7,7 @@ import (
 	"github.com/idolum-ai/aphelion/config"
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/durableagent"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	memstore "github.com/idolum-ai/aphelion/memory"
 	"github.com/idolum-ai/aphelion/session"
 	_ "github.com/mattn/go-sqlite3"
@@ -135,12 +136,12 @@ func TestClearSharedDynamicMemoryPreservesIdentitySectionInMemory(t *testing.T) 
 		t.Fatalf("WriteFile(daily note) err = %v", err)
 	}
 
-	removed, err := clearSharedDynamicMemory(cfg)
+	removed, err := maintenancecli.ClearSharedDynamicMemory(cfg)
 	if err != nil {
-		t.Fatalf("clearSharedDynamicMemory() err = %v", err)
+		t.Fatalf("maintenancecli.ClearSharedDynamicMemory() err = %v", err)
 	}
 	if removed == 0 {
-		t.Fatal("clearSharedDynamicMemory() removed 0 paths, want preserved/cleared entries")
+		t.Fatal("maintenancecli.ClearSharedDynamicMemory() removed 0 paths, want preserved/cleared entries")
 	}
 
 	raw, err := os.ReadFile(filepath.Join(root, "MEMORY.md"))
@@ -196,9 +197,9 @@ func TestArchiveColdDailyNotesMovesOldNotesIntoArchive(t *testing.T) {
 		t.Fatalf("WriteFile(recent note) err = %v", err)
 	}
 
-	archived, err := archiveColdDailyNotes(cfg, time.Date(2026, time.April, 10, 12, 0, 0, 0, time.UTC))
+	archived, err := maintenancecli.ArchiveColdDailyNotes(cfg, time.Date(2026, time.April, 10, 12, 0, 0, 0, time.UTC))
 	if err != nil {
-		t.Fatalf("archiveColdDailyNotes() err = %v", err)
+		t.Fatalf("maintenancecli.ArchiveColdDailyNotes() err = %v", err)
 	}
 	if archived != 1 {
 		t.Fatalf("archived = %d, want 1", archived)
@@ -237,9 +238,9 @@ func TestArchiveOversizedCuratedMemoryArchivesAndCompacts(t *testing.T) {
 		t.Fatalf("WriteFile(knowledge.md) err = %v", err)
 	}
 
-	archived, err := archiveOversizedCuratedMemory(cfg, time.Date(2026, time.April, 10, 12, 0, 0, 0, time.UTC))
+	archived, err := maintenancecli.ArchiveOversizedCuratedMemory(cfg, time.Date(2026, time.April, 10, 12, 0, 0, 0, time.UTC))
 	if err != nil {
-		t.Fatalf("archiveOversizedCuratedMemory() err = %v", err)
+		t.Fatalf("maintenancecli.ArchiveOversizedCuratedMemory() err = %v", err)
 	}
 	if archived != 1 {
 		t.Fatalf("archived = %d, want 1", archived)
@@ -316,26 +317,26 @@ user_memory_root = "` + filepath.ToSlash(filepath.Join(root, "state", "isolated"
 	}
 
 	listOut, err := captureStdout(t, func() error {
-		return runImportAuditCommand([]string{"--config", cfgPath, "list"})
+		return maintenancecli.RunImportAuditCommand([]string{"--config", cfgPath, "list"})
 	})
 	if err != nil {
-		t.Fatalf("runImportAuditCommand(list) err = %v", err)
+		t.Fatalf("maintenancecli.RunImportAuditCommand(list) err = %v", err)
 	}
 	if !strings.Contains(listOut, "id="+strconv.FormatInt(docID, 10)) {
 		t.Fatalf("list output = %q, want imported doc id %d", listOut, docID)
 	}
 
 	if _, err := captureStdout(t, func() error {
-		return runImportAuditCommand([]string{"--config", cfgPath, "--id", strconv.FormatInt(docID, 10), "approve"})
+		return maintenancecli.RunImportAuditCommand([]string{"--config", cfgPath, "--id", strconv.FormatInt(docID, 10), "approve"})
 	}); err != nil {
-		t.Fatalf("runImportAuditCommand(approve) err = %v", err)
+		t.Fatalf("maintenancecli.RunImportAuditCommand(approve) err = %v", err)
 	}
 
 	approvedOut, err := captureStdout(t, func() error {
-		return runImportAuditCommand([]string{"--config", cfgPath, "--state", "approved", "list"})
+		return maintenancecli.RunImportAuditCommand([]string{"--config", cfgPath, "--state", "approved", "list"})
 	})
 	if err != nil {
-		t.Fatalf("runImportAuditCommand(list approved) err = %v", err)
+		t.Fatalf("maintenancecli.RunImportAuditCommand(list approved) err = %v", err)
 	}
 	if !strings.Contains(approvedOut, "state=approved") {
 		t.Fatalf("approved list output = %q, want approved state", approvedOut)
@@ -375,7 +376,7 @@ user_memory_root = "` + filepath.ToSlash(filepath.Join(root, "state", "isolated"
 	createOpenClawImportFixture(t, foreignDBPath)
 
 	out, err := captureStdout(t, func() error {
-		return runImportSemanticCommand([]string{
+		return maintenancecli.RunImportSemanticCommand([]string{
 			"--config", cfgPath,
 			"--db", foreignDBPath,
 			"--scope", "principal",
@@ -384,7 +385,7 @@ user_memory_root = "` + filepath.ToSlash(filepath.Join(root, "state", "isolated"
 		})
 	})
 	if err != nil {
-		t.Fatalf("runImportSemanticCommand() err = %v", err)
+		t.Fatalf("maintenancecli.RunImportSemanticCommand() err = %v", err)
 	}
 	if !strings.Contains(out, "documents: 1") || !strings.Contains(out, "chunks: 2") {
 		t.Fatalf("import output = %q, want document/chunk summary", out)
@@ -428,14 +429,14 @@ func TestRunImportCodexSessionsCommandImportsAndDedupes(t *testing.T) {
 	writeCodexSessionMaintenanceFixture(t, codexHome, time.Now().UTC().Add(-time.Hour), "command import should enter quarantine")
 
 	out, err := captureStdout(t, func() error {
-		return runImportCodexSessionsCommand([]string{
+		return maintenancecli.RunImportCodexSessionsCommand([]string{
 			"--config", cfgPath,
 			"--lookback", "48h",
 			"--active-grace", "1m",
 		})
 	})
 	if err != nil {
-		t.Fatalf("runImportCodexSessionsCommand() err = %v", err)
+		t.Fatalf("maintenancecli.RunImportCodexSessionsCommand() err = %v", err)
 	}
 	for _, needle := range []string{
 		"action: import-codex-sessions",
@@ -449,14 +450,14 @@ func TestRunImportCodexSessionsCommandImportsAndDedupes(t *testing.T) {
 	}
 
 	again, err := captureStdout(t, func() error {
-		return runImportCodexSessionsCommand([]string{
+		return maintenancecli.RunImportCodexSessionsCommand([]string{
 			"--config", cfgPath,
 			"--lookback", "48h",
 			"--active-grace", "1m",
 		})
 	})
 	if err != nil {
-		t.Fatalf("runImportCodexSessionsCommand(second) err = %v", err)
+		t.Fatalf("maintenancecli.RunImportCodexSessionsCommand(second) err = %v", err)
 	}
 	if !strings.Contains(again, "imported: 0") || !strings.Contains(again, "skipped_already_imported: 1") {
 		t.Fatalf("second import output = %q, want dedupe skip", again)
@@ -687,7 +688,7 @@ func TestDurableAgentReconcileRepairsActiveChildAndQueuesGrowthPrompt(t *testing
 		t.Fatalf("Close() err = %v", err)
 	}
 
-	result, err := reconcileDurableAgentsForConfig(cfg, durableAgentReconcileOptions{
+	result, err := reconcileDurableAgentsForConfig(cfg, maintenancecli.DurableAgentReconcileOptions{
 		QueueGrowthPrompt: true,
 		Now:               time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC),
 	})
@@ -720,11 +721,11 @@ func TestDurableAgentReconcileRepairsActiveChildAndQueuesGrowthPrompt(t *testing
 	if err != nil {
 		t.Fatalf("DurableAgentState() err = %v", err)
 	}
-	if state.Status != "dormant" || !strings.Contains(state.StateJSON, durableAgentReconcileGrowthMarker) {
+	if state.Status != "dormant" || !strings.Contains(state.StateJSON, maintenancecli.DurableAgentReconcileGrowthMarker) {
 		t.Fatalf("state after reconcile = %#v, want dormant with growth marker", state)
 	}
 
-	second, err := reconcileDurableAgentsForConfig(cfg, durableAgentReconcileOptions{
+	second, err := reconcileDurableAgentsForConfig(cfg, maintenancecli.DurableAgentReconcileOptions{
 		QueueGrowthPrompt: true,
 		Now:               time.Date(2026, 4, 26, 13, 0, 0, 0, time.UTC),
 	})
@@ -738,7 +739,7 @@ func TestDurableAgentReconcileRepairsActiveChildAndQueuesGrowthPrompt(t *testing
 	if err != nil {
 		t.Fatalf("DurableAgentState(second) err = %v", err)
 	}
-	if strings.Count(state.StateJSON, durableAgentReconcileGrowthMarker) != 1 {
+	if strings.Count(state.StateJSON, maintenancecli.DurableAgentReconcileGrowthMarker) != 1 {
 		t.Fatalf("state.StateJSON = %q, want one growth marker", state.StateJSON)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/principal"
+	missionpkg "github.com/idolum-ai/aphelion/runtime/mission"
 	"github.com/idolum-ai/aphelion/session"
 )
 
@@ -35,7 +36,7 @@ func (r *Runtime) MissionActionProposal(ctx context.Context, chatID int64, sende
 	if !ok {
 		return session.ActionProposal{}, fmt.Errorf("mission %q not found", missionID)
 	}
-	owner := missionCommandOwner(actor, senderID)
+	owner := missionpkg.CommandOwner(actor, senderID)
 	if actor.Role != principal.RoleAdmin && strings.TrimSpace(mission.Owner) != owner {
 		return session.ActionProposal{}, fmt.Errorf("mission %q is not owned by this sender", missionID)
 	}
@@ -81,7 +82,7 @@ func (r *Runtime) ApplyMissionActionProposalDecision(ctx context.Context, chatID
 	if !ok {
 		return session.MissionState{}, false, fmt.Errorf("mission %q not found", missionID)
 	}
-	owner := missionCommandOwner(actor, senderID)
+	owner := missionpkg.CommandOwner(actor, senderID)
 	if actor.Role != principal.RoleAdmin && strings.TrimSpace(mission.Owner) != owner {
 		return session.MissionState{}, false, fmt.Errorf("mission %q is not owned by this sender", missionID)
 	}

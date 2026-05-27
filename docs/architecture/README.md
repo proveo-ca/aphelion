@@ -16,6 +16,11 @@ Use only these three terms when classifying current architecture surfaces:
 - `operational current-state store`: mutable "what is currently declared now"
   surface used by runtime operations.
 
+The applied map for current state surfaces is
+[`state-surfaces.md`](state-surfaces.md#classification-matrix). Architecture
+notes that classify a current surface should use these terms exactly or link to
+that matrix so the vocabulary remains searchable.
+
 ## Truth-Class Invariants
 
 These invariants are normative for architecture and requirements alignment:
@@ -28,7 +33,7 @@ These invariants are normative for architecture and requirements alignment:
 
 ## Normative Map
 
-- [design-principles.md](design-principles.md): project-level design principles for Aphelion as a minimal governed outpost.
+- [design-principles.md](design-principles.md): project-level design principles for Aphelion as a governed, locally operable outpost.
 - [influences-and-departures.md](influences-and-departures.md): attribution ledger for nearby systems, theory, and the points where Aphelion deliberately diverges.
 - [agency-evaluation-methodology.md](agency-evaluation-methodology.md): grounded behavioral methodology for measuring agency prompt quality, drift, and hard authority failures.
 - [principle-debt.md](principle-debt.md): active implementation gaps against the design principles.

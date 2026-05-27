@@ -227,11 +227,11 @@ type stubCommandRouter struct {
 	queueMissionClarificationMsg *core.InboundMessage
 	queueMissionClarificationID  string
 	queueMissionClarificationErr error
-	memoryReviewBySource         map[memoryReviewSource]memoryReviewSnapshot
+	memoryReviewBySource         map[core.MemoryReviewSource]core.MemoryReviewSnapshot
 	memoryReviewErr              error
 	memoryReviewChatID           int64
 	memoryReviewSenderID         int64
-	memoryReviewSource           memoryReviewSource
+	memoryReviewSource           core.MemoryReviewSource
 	memoryReviewMessage          core.InboundMessage
 	threadCreateMsg              *core.InboundMessage
 	threadCreateReturn           session.TelegramThread

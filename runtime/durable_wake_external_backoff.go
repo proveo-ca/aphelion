@@ -9,6 +9,7 @@ import (
 
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/durableagent"
+	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
 )
 
 func (r *Runtime) recordDurableWakeExternalFailure(agent core.DurableAgent, cause error, now time.Time) (bool, error) {
@@ -36,7 +37,7 @@ func (r *Runtime) recordDurableWakeExternalFailure(agent core.DurableAgent, caus
 		LastStatus: "wake_failed",
 		LastError:  truncateRunes(failureCode+": "+cause.Error(), 900),
 	}, now)
-	if strings.EqualFold(adapterName, codexAppServerAdapterName) {
+	if strings.EqualFold(adapterName, runtimecodex.AdapterName) {
 		continuity.ExternalChannel = encodeCodexExternalChannelState(runtimeState, decodeCodexAdapterState(runtimeState.AdapterState))
 	} else {
 		continuity.ExternalChannel = encodeGenericExternalChannelState(runtimeState, adapterName)

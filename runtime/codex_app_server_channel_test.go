@@ -13,11 +13,12 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/runtime/codex"
 )
 
-type fakeCodexAppServerDoer struct{ result codexAppServerResult }
+type fakeCodexAppServerDoer struct{ result codex.Result }
 
-func (f fakeCodexAppServerDoer) Do(_ context.Context, req codexAppServerRequest) (codexAppServerResult, error) {
+func (f fakeCodexAppServerDoer) Do(_ context.Context, req codex.Request) (codex.Result, error) {
 	out := f.result
 	out.ThreadID = firstNonEmpty(out.ThreadID, "thread-1")
 	out.TurnID = firstNonEmpty(out.TurnID, "turn-1")
@@ -28,7 +29,7 @@ func (f fakeCodexAppServerDoer) Do(_ context.Context, req codexAppServerRequest)
 	}
 	env, err := core.ParseDurableChildStatusEnvelope(out.EnvelopeRaw)
 	if err != nil {
-		return codexAppServerResult{}, err
+		return codex.Result{}, err
 	}
 	out.Envelope = env
 	out.PayloadHash = env.PayloadHash
@@ -75,7 +76,7 @@ func TestCodexAppServerWakeAdapterStoresHeartbeatAndThreadState(t *testing.T) {
 func TestCodexAppServerStatusPromptUsesGenericChildEnvelope(t *testing.T) {
 	t.Parallel()
 
-	prompt := codexAppServerStatusPrompt(core.DurableAgent{AgentID: "console"}, time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC))
+	prompt := codex.StatusPrompt(core.DurableAgent{AgentID: "console"}, time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC))
 	for _, want := range []string{
 		"## Role",
 		"## Goal",
@@ -111,13 +112,13 @@ func TestCodexAppServerInstructionsUseReadOnlyContract(t *testing.T) {
 		AgentID:    "console",
 		LivePolicy: core.NormalizeDurableAgentLivePolicy(core.DurableAgentLivePolicy{Charter: "Observe status only."}),
 	}
-	base := codexAppServerBaseInstructions(agent)
+	base := codex.BaseInstructions(agent)
 	for _, want := range []string{"## Role", "## Goal", "## Success Criteria", "## Stop Rules", "console", "return only the requested durable_child_status JSON object"} {
 		if !strings.Contains(base, want) {
 			t.Fatalf("base instructions missing %q:\n%s", want, base)
 		}
 	}
-	developer := codexAppServerDeveloperInstructions(agent)
+	developer := codex.DeveloperInstructions(agent)
 	for _, want := range []string{"## Charter", "Observe status only.", "## Boundary", "read-only status/heartbeat tasks only", "process names only"} {
 		if !strings.Contains(developer, want) {
 			t.Fatalf("developer instructions missing %q:\n%s", want, developer)
@@ -146,27 +147,27 @@ func TestCodexAppServerClientRaisesWebsocketReadLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newCodexAppServerClient("ws://" + strings.TrimPrefix(server.URL, "http://"))
+	client := codex.NewClient("ws://" + strings.TrimPrefix(server.URL, "http://"))
 	defer client.Close(websocket.StatusNormalClosure, "done")
 	if err := client.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect() err = %v", err)
 	}
-	msg, err := client.readMessage(context.Background())
+	msg, err := client.ReadMessage(context.Background())
 	if err != nil {
 		t.Fatalf("readMessage() err = %v, want large websocket message accepted", err)
 	}
-	result := asObject(msg["result"])
-	if got := stringField(result, "blob"); len(got) != len(large) {
+	result := codex.AsObject(msg["result"])
+	if got := codex.StringField(result, "blob"); len(got) != len(large) {
 		t.Fatalf("blob length = %d, want %d", len(got), len(large))
 	}
 }
 
 func TestCodexAppServerCommandAllowedIsNarrow(t *testing.T) {
-	if !codexAppServerCommandAllowed("hostname") || !codexAppServerCommandAllowed("ps -A -o comm= -r | head -5") {
+	if !codex.AppServerCommandAllowed("hostname") || !codex.AppServerCommandAllowed("ps -A -o comm= -r | head -5") {
 		t.Fatal("expected read-only status command allowed")
 	}
 	for _, cmd := range []string{"ps aux", "cat ~/.ssh/id_rsa", "screencapture x.png", "kill 1", "open -a Mail"} {
-		if codexAppServerCommandAllowed(cmd) {
+		if codex.AppServerCommandAllowed(cmd) {
 			t.Fatalf("%q should be denied", cmd)
 		}
 	}
@@ -177,9 +178,9 @@ type failingCodexAppServerDoer struct {
 	err   error
 }
 
-func (f *failingCodexAppServerDoer) Do(_ context.Context, req codexAppServerRequest) (codexAppServerResult, error) {
+func (f *failingCodexAppServerDoer) Do(_ context.Context, req codex.Request) (codex.Result, error) {
 	f.calls++
-	return codexAppServerResult{ThreadID: req.ThreadID, Text: `{"not":"a valid status"}`}, f.err
+	return codex.Result{ThreadID: req.ThreadID, Text: `{"not":"a valid status"}`}, f.err
 }
 
 func TestCodexAppServerWakeAdapterQuarantinesFailureAndBacksOff(t *testing.T) {
@@ -193,7 +194,7 @@ func TestCodexAppServerWakeAdapterQuarantinesFailureAndBacksOff(t *testing.T) {
 	if err := store.UpsertDurableAgent(agent); err != nil {
 		t.Fatalf("UpsertDurableAgent() err = %v", err)
 	}
-	doer := &failingCodexAppServerDoer{err: errCodexAppServerNoStatusEnvelope}
+	doer := &failingCodexAppServerDoer{err: codex.ErrNoStatusEnvelope}
 	adapter := &codexAppServerWakeAdapter{doer: doer}
 	rt.durableWakeAdapters = []durableWakeIngressAdapter{adapter}
 	now := time.Date(2026, 4, 29, 7, 10, 0, 0, time.UTC)

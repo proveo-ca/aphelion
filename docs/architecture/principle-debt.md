@@ -28,6 +28,21 @@ Status values:
 
 None.
 
+`None.` means no known uncontained principle violation is being carried here.
+Temporary architecture seams belong in the root
+[`ARCHITECTURE_WAIVERS.md`](../../ARCHITECTURE_WAIVERS.md) ledger; broader
+pressure that needs watchfulness but not immediate remediation belongs under
+Monitored Tensions.
+
+## Monitored Tensions
+
+- **Scope/legibility tension:** Aphelion's implemented surface is broad enough
+  that "small enough to understand" must now mean governable, composable, and
+  legible under pressure rather than absolutely small. The repair path is to
+  keep package ownership, capability boundaries, authority gates, evidence
+  paths, and recovery surfaces explicit as the system grows. This is not a
+  mandate to delete capabilities; it is a mandate to prevent platform gravity.
+
 ## Machine-Checked Paths
 
 `make design-principles` rejects live authority, consent, continuation, wake,

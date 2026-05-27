@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"github.com/idolum-ai/aphelion/internal/telegramcommands"
+	"github.com/idolum-ai/aphelion/internal/telegramruntime"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,7 +22,7 @@ func TestThreadSummaryCallbackQueuesMainThreadWork(t *testing.T) {
 
 	sender := &stubCommandSender{}
 	router := &stubCommandRouter{threadSummaryReturn: "Analysis queued."}
-	handled, err := handleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
+	handled, err := telegramcommands.HandleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{
 		ID:       "cb-thread-summary",
 		From:     &telegram.User{ID: 2002},
 		Data:     telegramThreadSummaryCallbackData,
@@ -31,7 +33,7 @@ func TestThreadSummaryCallbackQueuesMainThreadWork(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("handleTelegramCommandCallback() err = %v", err)
+		t.Fatalf("telegramcommands.HandleTelegramCommandCallback() err = %v", err)
 	}
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -39,7 +41,7 @@ func TestThreadSummaryCallbackQueuesMainThreadWork(t *testing.T) {
 	if router.threadSummaryMsg == nil || router.threadSummaryMsg.ChatID != 1001 || router.threadSummaryMsg.SenderID != 2002 || router.threadSummaryMsg.TelegramThreadID != 0 {
 		t.Fatalf("threadSummaryMsg = %#v, want main-thread routed work", router.threadSummaryMsg)
 	}
-	if router.threadSummaryMsg.IngressSurface != telegramThreadSummaryIngressSurface || router.threadSummaryMsg.IngressUpdateID != 808 {
+	if router.threadSummaryMsg.IngressSurface != telegramruntime.ThreadSummaryIngressSurface || router.threadSummaryMsg.IngressUpdateID != 808 {
 		t.Fatalf("threadSummaryMsg ingress = %s/%d, want durable callback surface/update", router.threadSummaryMsg.IngressSurface, router.threadSummaryMsg.IngressUpdateID)
 	}
 	if len(sender.answers) != 1 || sender.answers[0].text != "Analysis queued." {
@@ -95,7 +97,7 @@ func TestQueueTelegramThreadSummaryRoutesMainThreadEvidence(t *testing.T) {
 		ChatID:          1001,
 		SenderID:        2002,
 		MessageID:       3003,
-		IngressSurface:  telegramThreadSummaryIngressSurface,
+		IngressSurface:  telegramruntime.ThreadSummaryIngressSurface,
 		IngressUpdateID: 909,
 		Text:            "/threads analyze",
 	})
@@ -120,7 +122,7 @@ func TestQueueTelegramThreadSummaryRoutesMainThreadEvidence(t *testing.T) {
 	if strings.Contains(routed.Text, "Thread 2") || strings.Contains(routed.Text, "closed child setup") {
 		t.Fatalf("routed text = %q, want closed thread excluded", routed.Text)
 	}
-	pending, err := store.PendingTelegramIngressUpdates(telegramThreadSummaryIngressSurface, 10)
+	pending, err := store.PendingTelegramIngressUpdates(telegramruntime.ThreadSummaryIngressSurface, 10)
 	if err != nil {
 		t.Fatalf("PendingTelegramIngressUpdates(summary surface) err = %v", err)
 	}
@@ -177,7 +179,7 @@ func TestQueueTelegramThreadSummarySuppressesDuplicateCallbackWork(t *testing.T)
 		ChatID:          1001,
 		SenderID:        2002,
 		MessageID:       3003,
-		IngressSurface:  telegramThreadSummaryIngressSurface,
+		IngressSurface:  telegramruntime.ThreadSummaryIngressSurface,
 		IngressUpdateID: 910,
 		Text:            "/threads analyze",
 	}
@@ -186,7 +188,7 @@ func TestQueueTelegramThreadSummarySuppressesDuplicateCallbackWork(t *testing.T)
 	}
 	select {
 	case first := <-started:
-		if first.IngressSurface != telegramThreadSummaryIngressSurface || first.IngressUpdateID != 910 || !strings.Contains(first.Text, "Thread-board evidence") || !strings.Contains(first.Text, "display_thread") {
+		if first.IngressSurface != telegramruntime.ThreadSummaryIngressSurface || first.IngressUpdateID != 910 || !strings.Contains(first.Text, "Thread-board evidence") || !strings.Contains(first.Text, "display_thread") {
 			t.Fatalf("first started = %#v, want callback-work analysis quest", first)
 		}
 	case <-time.After(time.Second):
@@ -242,7 +244,7 @@ func TestThreadSummaryCallbackWorkReplaysStoredQuest(t *testing.T) {
 		ChatID:          1001,
 		SenderID:        2002,
 		MessageID:       3003,
-		IngressSurface:  telegramThreadSummaryIngressSurface,
+		IngressSurface:  telegramruntime.ThreadSummaryIngressSurface,
 		IngressUpdateID: 909,
 		Text:            "/threads analyze",
 	}); err != nil {
@@ -250,8 +252,8 @@ func TestThreadSummaryCallbackWorkReplaysStoredQuest(t *testing.T) {
 	}
 
 	var replayed core.InboundMessage
-	checkpoint := newTelegramIngressCheckpoint(store, telegramThreadSummaryIngressSurface)
-	err = replayPendingTelegramIngress(context.Background(), store, checkpoint, func(_ context.Context, msg core.InboundMessage) error {
+	checkpoint := telegramruntime.NewIngressCheckpoint(store, telegramruntime.ThreadSummaryIngressSurface)
+	err = telegramruntime.ReplayPendingIngress(context.Background(), store, checkpoint, func(_ context.Context, msg core.InboundMessage) error {
 		replayed = msg
 		run, err := store.BeginTurnRunForTelegramIngress(
 			session.SessionKey{ChatID: msg.ChatID, UserID: 0},
@@ -264,24 +266,24 @@ func TestThreadSummaryCallbackWorkReplaysStoredQuest(t *testing.T) {
 			return err
 		}
 		return store.MarkTelegramIngressCompleted(msg.IngressSurface, msg.IngressUpdateID, run.ID, session.TelegramIngressUpdateCompleted, "", time.Now().UTC())
-	}, telegramThreadSummaryIngressSurface, 10, nil)
+	}, telegramruntime.ThreadSummaryIngressSurface, 10, nil)
 	if err != nil {
-		t.Fatalf("replayPendingTelegramIngress() err = %v", err)
+		t.Fatalf("telegramruntime.ReplayPendingIngress() err = %v", err)
 	}
-	if replayed.ChatID != 1001 || replayed.TelegramThreadID != 0 || replayed.IngressSurface != telegramThreadSummaryIngressSurface || replayed.IngressUpdateID != 909 {
+	if replayed.ChatID != 1001 || replayed.TelegramThreadID != 0 || replayed.IngressSurface != telegramruntime.ThreadSummaryIngressSurface || replayed.IngressUpdateID != 909 {
 		t.Fatalf("replayed = %#v, want main-chat callback-work ingress", replayed)
 	}
 	if !strings.Contains(replayed.Text, "Thread-board evidence") || !strings.Contains(replayed.Text, "display_thread: 1") || !strings.Contains(replayed.Text, "Open assistant result") {
 		t.Fatalf("replayed text = %q, want stored side-thread analysis evidence", replayed.Text)
 	}
-	pending, err := store.PendingTelegramIngressUpdates(telegramThreadSummaryIngressSurface, 10)
+	pending, err := store.PendingTelegramIngressUpdates(telegramruntime.ThreadSummaryIngressSurface, 10)
 	if err != nil {
 		t.Fatalf("PendingTelegramIngressUpdates() err = %v", err)
 	}
 	if len(pending) != 0 {
 		t.Fatalf("pending = %#v, want replayed summary work terminal", pending)
 	}
-	if next, err := store.TelegramIngressNextUpdateID(telegramThreadSummaryIngressSurface); err != nil || next != 910 {
+	if next, err := store.TelegramIngressNextUpdateID(telegramruntime.ThreadSummaryIngressSurface); err != nil || next != 910 {
 		t.Fatalf("TelegramIngressNextUpdateID() = %d err=%v, want 910", next, err)
 	}
 }

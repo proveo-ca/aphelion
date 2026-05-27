@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	"os"
 	"path/filepath"
 	"strings"
@@ -508,9 +509,9 @@ func TestRepairLiveStateClosesContinuationsPlanLeasesAndPendingDecisions(t *test
 		t.Fatalf("UpsertPendingDecision() err = %v", err)
 	}
 
-	result, err := repairLiveState(context.Background(), store, "test_live_repair", true, time.Now().UTC())
+	result, err := maintenancecli.RepairLiveState(context.Background(), store, "test_live_repair", true, time.Now().UTC(), maintenanceLiveStateRepairDeps())
 	if err != nil {
-		t.Fatalf("repairLiveState() err = %v", err)
+		t.Fatalf("maintenancecli.RepairLiveState() err = %v", err)
 	}
 	if result.ContinuationsClosed != 1 || result.PlanLeasesRevoked != 1 || result.PendingDecisionsCleared != 1 {
 		t.Fatalf("repair result = %#v, want continuation, plan lease, and decision cleaned", result)
@@ -602,9 +603,9 @@ func TestRepairLiveStateRepairsMetadataAuthorityDriftWithoutClosingLive(t *testi
 		t.Fatalf("UpdateContinuationState() err = %v", err)
 	}
 
-	result, err := repairLiveState(context.Background(), store, "test_authority_repair", false, time.Now().UTC())
+	result, err := maintenancecli.RepairLiveState(context.Background(), store, "test_authority_repair", false, time.Now().UTC(), maintenanceLiveStateRepairDeps())
 	if err != nil {
-		t.Fatalf("repairLiveState() err = %v", err)
+		t.Fatalf("maintenancecli.RepairLiveState() err = %v", err)
 	}
 	if result.AuthorityContractsRepaired != 1 || result.ContinuationsClosed != 0 {
 		t.Fatalf("repair result = %#v, want one authority repair without broad close", result)
@@ -667,9 +668,9 @@ func TestPruneExecutionEventsForRetentionExportsThenPrunes(t *testing.T) {
 	cfg.Sessions.TESRetention.MaxDeletePerGC = 3
 	cfg.Sessions.TESRetention.ExportDir = filepath.Join(root, "tes-exports")
 
-	removed, status, err := pruneExecutionEventsForRetention(&cfg, now)
+	removed, status, err := maintenancecli.PruneExecutionEventsForRetention(&cfg, now)
 	if err != nil {
-		t.Fatalf("pruneExecutionEventsForRetention() err = %v", err)
+		t.Fatalf("maintenancecli.PruneExecutionEventsForRetention() err = %v", err)
 	}
 	if removed != 3 {
 		t.Fatalf("removed = %d, want 3", removed)
@@ -701,7 +702,7 @@ func TestPruneExecutionEventsForRetentionExportsThenPrunes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%s) err = %v", exports[0], err)
 	}
-	var bundle tesRetentionExportBundle
+	var bundle maintenancecli.TESRetentionExportBundle
 	if err := json.Unmarshal(raw, &bundle); err != nil {
 		t.Fatalf("json.Unmarshal(export) err = %v", err)
 	}
@@ -759,9 +760,9 @@ func TestPruneExecutionEventsForRetentionNoOpDoesNotExport(t *testing.T) {
 	cfg.Sessions.TESRetention.MaxDeletePerGC = 2
 	cfg.Sessions.TESRetention.ExportDir = filepath.Join(root, "tes-exports")
 
-	removed, status, err := pruneExecutionEventsForRetention(&cfg, now)
+	removed, status, err := maintenancecli.PruneExecutionEventsForRetention(&cfg, now)
 	if err != nil {
-		t.Fatalf("pruneExecutionEventsForRetention() err = %v", err)
+		t.Fatalf("maintenancecli.PruneExecutionEventsForRetention() err = %v", err)
 	}
 	if removed != 0 {
 		t.Fatalf("removed = %d, want 0", removed)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
+	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
 )
 
 func (r *Runtime) preflightDurableWakeAgent(agent core.DurableAgent, now time.Time) error {
@@ -25,7 +26,7 @@ func (r *Runtime) preflightDurableWakeAgent(agent core.DurableAgent, now time.Ti
 	if adapterName == "" {
 		return fmt.Errorf("external channel adapter is not configured")
 	}
-	if strings.EqualFold(adapterName, codexAppServerAdapterName) {
+	if strings.EqualFold(adapterName, runtimecodex.AdapterName) {
 		return nil
 	}
 	readiness := r.externalChannelReadinessForAgent(agent, now.UTC())

@@ -26,7 +26,9 @@ func maintenanceSetupDeps() maintenancecli.SetupDeps {
 			printDailyReviewRecipeInstallResult(w, result)
 			return nil
 		},
-		ReconcileDurableAgentsForConfig:  reconcileDurableAgentsForConfig,
+		ReconcileDurableAgentsForConfig: func(cfg *config.Config, opts maintenancecli.DurableAgentReconcileOptions) (*maintenancecli.DurableAgentReconcileResult, error) {
+			return reconcileDurableAgentsForConfig(cfg, opts)
+		},
 		PrintDurableAgentReconcileResult: printDurableAgentReconcileResult,
 		ParkActiveWorkForRestart:         maintenanceLiveStateRepairDeps().ParkActiveWorkForRestart,
 	}

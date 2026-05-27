@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/internal/maintenancecli"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool"
 	"os"
@@ -36,14 +37,14 @@ func TestRepairCapabilityGrantDriftDryRunLeavesMissingRuntimeActive(t *testing.T
 		t.Fatalf("UpsertCapabilityGrant() err = %v", err)
 	}
 
-	result, err := repairCapabilityGrantDrift(context.Background(), store, nil, capabilityGrantRepairOptions{
+	result, err := maintenancecli.RepairCapabilityGrantDrift(context.Background(), store, nil, maintenancecli.CapabilityGrantRepairOptions{
 		Limit:  10,
 		DryRun: true,
 		Source: "test",
 		Now:    now,
 	})
 	if err != nil {
-		t.Fatalf("repairCapabilityGrantDrift() err = %v", err)
+		t.Fatalf("maintenancecli.RepairCapabilityGrantDrift() err = %v", err)
 	}
 	if result.Inspected != 1 || result.RevokeCandidates != 1 || result.RevokesApplied != 0 || result.Errors != 0 {
 		t.Fatalf("repair result = %#v, want dry-run revoke candidate only", result)
@@ -80,14 +81,14 @@ func TestRepairCapabilityGrantDriftRevokesExpiredActiveGrant(t *testing.T) {
 		t.Fatalf("UpsertCapabilityGrant() err = %v", err)
 	}
 
-	result, err := repairCapabilityGrantDrift(context.Background(), store, nil, capabilityGrantRepairOptions{
+	result, err := maintenancecli.RepairCapabilityGrantDrift(context.Background(), store, nil, maintenancecli.CapabilityGrantRepairOptions{
 		Limit:  10,
 		DryRun: false,
 		Source: "test",
 		Now:    now,
 	})
 	if err != nil {
-		t.Fatalf("repairCapabilityGrantDrift() err = %v", err)
+		t.Fatalf("maintenancecli.RepairCapabilityGrantDrift() err = %v", err)
 	}
 	if result.Inspected != 1 || result.RevokeCandidates != 1 || result.RevokesApplied != 1 || result.Errors != 0 {
 		t.Fatalf("repair result = %#v, want one revoked expired grant", result)
@@ -134,7 +135,7 @@ func TestRepairCapabilityGrantDriftRepairsFromManifest(t *testing.T) {
 		t.Fatalf("WriteFile(executable) err = %v", err)
 	}
 	manifestPath := filepath.Join(root, "external-tools", "repair_tool", "manifest.json")
-	manifest := capabilityGrantRepairManifest{
+	manifest := maintenancecli.CapabilityGrantRepairManifest{
 		Path: manifestPath,
 		Manifest: tool.ExternalToolManifest{
 			Name:  "repair_tool",
@@ -146,14 +147,14 @@ func TestRepairCapabilityGrantDriftRepairsFromManifest(t *testing.T) {
 		},
 	}
 
-	result, err := repairCapabilityGrantDrift(context.Background(), store, []capabilityGrantRepairManifest{manifest}, capabilityGrantRepairOptions{
+	result, err := maintenancecli.RepairCapabilityGrantDrift(context.Background(), store, []maintenancecli.CapabilityGrantRepairManifest{manifest}, maintenancecli.CapabilityGrantRepairOptions{
 		Limit:  10,
 		DryRun: false,
 		Source: "test",
 		Now:    now,
 	})
 	if err != nil {
-		t.Fatalf("repairCapabilityGrantDrift() err = %v", err)
+		t.Fatalf("maintenancecli.RepairCapabilityGrantDrift() err = %v", err)
 	}
 	if result.Inspected != 1 || result.RepairCandidates != 1 || result.RepairsApplied != 1 || result.Errors != 0 {
 		t.Fatalf("repair result = %#v, want one repaired grant", result)
@@ -216,16 +217,16 @@ func TestLoadCapabilityRepairManifestsResolvesNestedRepoRelativeEntry(t *testing
 		t.Fatalf("WriteFile(manifest) err = %v", err)
 	}
 
-	manifests, err := loadCapabilityRepairManifests(manifestDir)
+	manifests, err := maintenancecli.LoadCapabilityRepairManifests(manifestDir)
 	if err != nil {
-		t.Fatalf("loadCapabilityRepairManifests() err = %v", err)
+		t.Fatalf("maintenancecli.LoadCapabilityRepairManifests() err = %v", err)
 	}
 	if len(manifests) != 1 {
 		t.Fatalf("manifests len = %d, want 1", len(manifests))
 	}
-	material, ok, reason := childRuntimeFromRepairManifest(manifests[0])
+	material, ok, reason := maintenancecli.ChildRuntimeFromRepairManifest(manifests[0])
 	if !ok {
-		t.Fatalf("childRuntimeFromRepairManifest() ok=false reason=%q", reason)
+		t.Fatalf("maintenancecli.ChildRuntimeFromRepairManifest() ok=false reason=%q", reason)
 	}
 	if material.Executable != executable {
 		t.Fatalf("material executable = %q, want %q", material.Executable, executable)
@@ -253,10 +254,10 @@ func TestRunRepairCapabilityGrantsCommandDefaultsToDryRun(t *testing.T) {
 	store.Close()
 
 	out, err := captureStdout(t, func() error {
-		return runRepairCapabilityGrantsCommand([]string{"--config", cfgPath, "--limit", "10"})
+		return maintenancecli.RunRepairCapabilityGrantsCommand([]string{"--config", cfgPath, "--limit", "10"})
 	})
 	if err != nil {
-		t.Fatalf("runRepairCapabilityGrantsCommand() err = %v", err)
+		t.Fatalf("maintenancecli.RunRepairCapabilityGrantsCommand() err = %v", err)
 	}
 	for _, needle := range []string{"action: repair-capability-grants", "dry_run: true", "revoke_candidates: 1", "revokes_applied: 0"} {
 		if !strings.Contains(out, needle) {
@@ -278,9 +279,9 @@ func TestRunRepairCapabilityGrantsCommandDefaultsToDryRun(t *testing.T) {
 }
 
 func TestRunRepairCapabilityGrantsCommandRequiresApplyForMutation(t *testing.T) {
-	err := runRepairCapabilityGrantsCommand([]string{"--dry-run=false"})
+	err := maintenancecli.RunRepairCapabilityGrantsCommand([]string{"--dry-run=false"})
 	if err == nil || !strings.Contains(err.Error(), "requires --apply") {
-		t.Fatalf("runRepairCapabilityGrantsCommand() err = %v, want --apply requirement", err)
+		t.Fatalf("maintenancecli.RunRepairCapabilityGrantsCommand() err = %v, want --apply requirement", err)
 	}
 }
 

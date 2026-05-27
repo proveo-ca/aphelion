@@ -14,10 +14,11 @@ and one provider API key.
 
 ## Install
 
-Install the latest release binary:
+Install the current public release binary by pinning both the installer ref and release asset to the same tag:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/idolum-ai/aphelion/main/scripts/install-release.sh | bash
+APHELION_VERSION=v0.1.3
+curl -fsSL "https://raw.githubusercontent.com/idolum-ai/aphelion/${APHELION_VERSION}/scripts/install-release.sh" | bash -s -- "${APHELION_VERSION}"
 ```
 
 If you are running the setup from the same Telegram account that will administer

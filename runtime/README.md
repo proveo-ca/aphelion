@@ -44,10 +44,19 @@ Authoritative split for maintenance turns (heartbeat/cron/recovery):
 - `interactive_like_assembly.go`: shared interactive-like turn assembly spine used by DM and durable-group turns
 - `interactive_dm_turn.go`: interactive DM species assembler boundary and one-turn construction
 - `maintenance_turn_assembly.go`: maintenance execution-family assembly boundary for heartbeat/cron/recovery turns
-- `turn*.go`, `durable_group.go`, `maintenance_turn.go`: adapters from runtime facts into `turn`
+- `turn.go`, `turn_finalize.go`, `turn_monitor_events.go`, `interactive_dm_turn.go`, `maintenance_turn.go`, `durable_wake_turn.go`: adapters from runtime facts into `turn`
 - `turn_coordinator_common.go`, `turn_coordinator_interactive.go`, `turn_coordinator_durable.go`: shared and species-specific coordinator adapters
 - `durable_wake.go`: pluggable durable wake ingress adapters and shared wake-turn substrate
 - `external_channel_runtime.go`: shared external-channel lifecycle helpers for poll due checks, command attempt/success/failure state, backoff, and adapter state containment
-- `codex_app_server_channel.go`: Codex app-server external-channel adapter for bounded read-only durable child status heartbeats
-- `durable_*.go`: durable-agent channel runtimes and channel adapters
-- `*_runtime_test.go`: runtime-domain integration suites (by concern)
+- `codex_app_server_channel.go`: top-level wiring for the Codex app-server external-channel adapter; helper/client/artifact/work-event mechanics live in `runtime/codex/`
+- `durable_group.go`, `durable_group_context.go`, `durable_group_review.go`, `durable_wake.go`, `durable_wake_loop.go`, `durable_wake_scheduled_review.go`: durable-agent channel runtimes and channel adapters
+- `interactive_dm_turn_runtime_test.go`, `durable_group_runtime_test.go`, `durable_wake_runtime_test.go`, `startup_recovery_runtime_test.go`, `status_runtime_test.go`: runtime-domain integration suites (by concern)
+- `doctor_runtime_test.go`, `doctor_condense_config_test.go`, `mission_ask_test.go`, `mission_control_proposal_test.go`: runtime-root integration suites for doctor/mission leaf wiring; they stay beside the runtime shell because they exercise root `Runtime`, command/wrapper behavior, storage, delivery, and Telegram session routing around the leaves.
+
+## Leaf Packages
+
+Runtime leaf packages are bounded helper domains consumed by the top-level `runtime` shell. They may own local mechanics and pure formatting/classification logic, but they must not own ingress/session/lifecycle wiring or broad runtime policy.
+
+- `runtime/codex`: bounded Codex app-server helper package. It owns the app-server client, status prompt helpers, artifact manifest helpers, work-event projection helpers, and command-effect taxonomy used by the Codex work lane. Top-level `runtime` still owns durable-agent wake wiring, executor selection, lifecycle loops, and authority state integration.
+- `runtime/doctor`: bounded `/doctor` diagnostics package. It owns doctor report assembly helpers, evidence sections, Telegram condensation helpers, maintainer artifact formatting, and doctor-local adapter contracts. Top-level `runtime` still owns command admission, principal resolution, storage/session wiring, delivery, and operational issue reporting.
+- `runtime/mission`: bounded Mission Ledger helper package. It owns mission command rendering, Mission Question classifier/prompt mechanics, working-objective helper logic, and mission proposal formatting. Top-level `runtime` still owns hidden-input assembly, transport callback integration, review-event delivery, and session lifecycle wiring.

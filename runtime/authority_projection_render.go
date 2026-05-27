@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/runtime/doctor"
 )
 
 func (p authorityProjection) snapshot() core.AuthorityStatusSnapshot {
@@ -62,30 +63,30 @@ func (p authorityProjection) snapshot() core.AuthorityStatusSnapshot {
 func (r *Runtime) writeDoctorAuthorityProjection(b *strings.Builder, now time.Time) {
 	projection, err := r.authorityProjection(now)
 	if err != nil {
-		writeDoctorKV(b, "authority_projection_error", err.Error())
+		doctor.WriteKV(b, "authority_projection_error", err.Error())
 		return
 	}
 	status := "healthy"
 	if len(projection.Findings) > 0 || projection.TruncatedCapabilitySet {
 		status = "needs_attention"
 	}
-	writeDoctorKV(b, "authority_projection_status", status)
-	writeDoctorKV(b, "authority_projection_generated_at", projection.GeneratedAt.Format(time.RFC3339))
-	writeDoctorKV(b, "authority_continuation_records", fmt.Sprintf("%d", projection.ContinuationRecords))
-	writeDoctorKV(b, "authority_operation_records", fmt.Sprintf("%d", projection.OperationRecords))
-	writeDoctorKV(b, "authority_pending_decisions", fmt.Sprintf("%d", projection.PendingDecisions))
-	writeDoctorKV(b, "authority_autoapproval_active_leases", fmt.Sprintf("%d", projection.AutoApprovalLeases))
-	writeDoctorKV(b, "authority_capability_active_grants", fmt.Sprintf("%d", projection.CapabilityGrants))
-	writeDoctorKV(b, "authority_active_proposals", fmt.Sprintf("%d", projection.ActiveProposals))
-	writeDoctorKV(b, "authority_active_leases", fmt.Sprintf("%d", projection.ActiveLeases))
-	writeDoctorKV(b, "authority_active_plan_leases", fmt.Sprintf("%d", projection.ActivePlanLeases))
-	writeDoctorKV(b, "authority_finding_count", fmt.Sprintf("%d", len(projection.Findings)))
+	doctor.WriteKV(b, "authority_projection_status", status)
+	doctor.WriteKV(b, "authority_projection_generated_at", projection.GeneratedAt.Format(time.RFC3339))
+	doctor.WriteKV(b, "authority_continuation_records", fmt.Sprintf("%d", projection.ContinuationRecords))
+	doctor.WriteKV(b, "authority_operation_records", fmt.Sprintf("%d", projection.OperationRecords))
+	doctor.WriteKV(b, "authority_pending_decisions", fmt.Sprintf("%d", projection.PendingDecisions))
+	doctor.WriteKV(b, "authority_autoapproval_active_leases", fmt.Sprintf("%d", projection.AutoApprovalLeases))
+	doctor.WriteKV(b, "authority_capability_active_grants", fmt.Sprintf("%d", projection.CapabilityGrants))
+	doctor.WriteKV(b, "authority_active_proposals", fmt.Sprintf("%d", projection.ActiveProposals))
+	doctor.WriteKV(b, "authority_active_leases", fmt.Sprintf("%d", projection.ActiveLeases))
+	doctor.WriteKV(b, "authority_active_plan_leases", fmt.Sprintf("%d", projection.ActivePlanLeases))
+	doctor.WriteKV(b, "authority_finding_count", fmt.Sprintf("%d", len(projection.Findings)))
 	if projection.TruncatedCapabilitySet {
-		writeDoctorKV(b, "authority_capability_projection_truncated", "true")
+		doctor.WriteKV(b, "authority_capability_projection_truncated", "true")
 	}
-	writeDoctorLine(b, "authority_findings:")
+	doctor.WriteLine(b, "authority_findings:")
 	if len(projection.Findings) == 0 {
-		writeDoctorLine(b, "- none")
+		doctor.WriteLine(b, "- none")
 		return
 	}
 	for _, finding := range projection.Findings {
@@ -116,7 +117,7 @@ func (r *Runtime) writeDoctorAuthorityProjection(b *strings.Builder, now time.Ti
 		if finding.Applicable {
 			parts = append(parts, "applicable=true")
 		}
-		writeDoctorLine(b, "- "+strings.Join(parts, " "))
+		doctor.WriteLine(b, "- "+strings.Join(parts, " "))
 	}
 }
 
