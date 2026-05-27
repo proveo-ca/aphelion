@@ -24,7 +24,7 @@ func (RealAppServerDoer) Do(ctx context.Context, req Request) (Result, error) {
 	if strings.TrimSpace(req.Address) == "" {
 		return Result{}, fmt.Errorf("codex app-server address is required")
 	}
-	client := NewClient(req.Address)
+	client := NewClient(req.Address, req.ApprovalHandler)
 	defer client.Close(websocket.StatusNormalClosure, "done")
 	if err := client.Connect(ctx); err != nil {
 		return Result{}, err
