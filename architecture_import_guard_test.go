@@ -68,6 +68,10 @@ func assertRuntimeImportBoundary(t *testing.T, pkg architecturePackage) {
 		if imported == runtimeRoot {
 			t.Fatalf("%s imports runtime; only the root composition package may import the runtime shell", pkg.ImportPath)
 		}
+		// Runtime leaf packages such as runtime/codex, runtime/doctor, and
+		// runtime/mission are private helpers for the runtime shell. Keeping them
+		// root-runtime-only prevents leaf extraction from becoming a new public
+		// orchestration API.
 		if strings.HasPrefix(imported, runtimeRoot+"/") && pkg.ImportPath != runtimeRoot {
 			t.Fatalf("%s imports runtime internals; only the runtime shell may import runtime leaf packages", pkg.ImportPath)
 		}

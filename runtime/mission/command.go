@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package mission
 
 import (
 	"context"
@@ -23,8 +23,8 @@ func (r *Runtime) MissionCommand(ctx context.Context, chatID int64, senderID int
 	if !ok {
 		return "Mission Ledger is unavailable for this sender.", ErrPrincipalDenied
 	}
-	owner := missionCommandOwner(actor, senderID)
-	key := session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)}
+	owner := CommandOwner(actor, senderID)
+	key := session.SessionKey{ChatID: chatID, UserID: 0, Scope: TelegramDMScopeRef(chatID)}
 	action, rest := nextMissionToken(args)
 	if action == "" || action == "list" {
 		return r.renderMissionCommandHome(key, owner)
@@ -122,7 +122,7 @@ func (r *Runtime) MissionHome(ctx context.Context, chatID int64, senderID int64)
 	if err != nil {
 		return nil, session.WorkingObjective{}, false, err
 	}
-	key := session.SessionKey{ChatID: chatID, UserID: 0, Scope: telegramDMScopeRef(chatID)}
+	key := session.SessionKey{ChatID: chatID, UserID: 0, Scope: TelegramDMScopeRef(chatID)}
 	missions, err := r.store.Missions(session.MissionFilter{Owner: owner, Limit: 12})
 	if err != nil {
 		return nil, session.WorkingObjective{}, false, err
@@ -214,7 +214,7 @@ func (r *Runtime) missionCommandActor(senderID int64) (principal.Principal, stri
 	if !ok {
 		return principal.Principal{}, "", ErrPrincipalDenied
 	}
-	return actor, missionCommandOwner(actor, senderID), nil
+	return actor, CommandOwner(actor, senderID), nil
 }
 
 func (r *Runtime) loadAuthorizedMission(missionID string, actor principal.Principal, owner string) (session.MissionState, error) {
@@ -274,7 +274,7 @@ func (r *Runtime) updateMissionCommandStatus(raw string, status session.MissionS
 	return renderMissionCommandShow(mission, nil), nil
 }
 
-func missionCommandOwner(actor principal.Principal, senderID int64) string {
+func commandOwnerLegacy(actor principal.Principal, senderID int64) string {
 	if strings.TrimSpace(actor.DurableAgentID) != "" {
 		return "durable_agent:" + strings.TrimSpace(actor.DurableAgentID)
 	}

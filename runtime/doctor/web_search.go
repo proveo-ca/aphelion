@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package doctor
 
 import (
 	"fmt"
@@ -12,14 +12,14 @@ import (
 
 func (r *Runtime) writeDoctorWebSearchStatus(b *strings.Builder) {
 	if r == nil || r.cfg == nil {
-		writeDoctorLine(b, "web_search: unavailable")
+		WriteLine(b, "web_search: unavailable")
 		return
 	}
 	cfg := r.cfg.Tools.WebSearch
-	writeDoctorLine(b, "web_search: configured")
-	writeDoctorKV(b, "web_search_enabled", strconv.FormatBool(cfg.Enabled))
-	writeDoctorKV(b, "web_search_provider_order", strings.Join(cfg.ProviderOrder, ","))
-	writeDoctorKV(b, "web_search_openai_hosted", webSearchDoctorEnabled(cfg.OpenAIHosted.Enabled))
+	WriteLine(b, "web_search: configured")
+	WriteKV(b, "web_search_enabled", strconv.FormatBool(cfg.Enabled))
+	WriteKV(b, "web_search_provider_order", strings.Join(cfg.ProviderOrder, ","))
+	WriteKV(b, "web_search_openai_hosted", webSearchDoctorEnabled(cfg.OpenAIHosted.Enabled))
 	braveStatus := webSearchDoctorEnabled(cfg.Brave.Enabled)
 	if cfg.Brave.Enabled {
 		switch {
@@ -31,14 +31,14 @@ func (r *Runtime) writeDoctorWebSearchStatus(b *strings.Builder) {
 			braveStatus += ":missing_credential_reference"
 		}
 	}
-	writeDoctorKV(b, "web_search_brave", braveStatus)
+	WriteKV(b, "web_search_brave", braveStatus)
 	if r.store == nil {
-		writeDoctorKV(b, "web_search_grant", "unknown_no_store")
+		WriteKV(b, "web_search_grant", "unknown_no_store")
 		return
 	}
 	grants, err := r.store.CapabilityGrants(200, session.CapabilityGrantStatusActive, session.CapabilityKindTool, "")
 	if err != nil {
-		writeDoctorKV(b, "web_search_grant_error", err.Error())
+		WriteKV(b, "web_search_grant_error", err.Error())
 		return
 	}
 	active := 0
@@ -47,7 +47,7 @@ func (r *Runtime) writeDoctorWebSearchStatus(b *strings.Builder) {
 			active++
 		}
 	}
-	writeDoctorKV(b, "web_search_active_grants", fmt.Sprintf("%d", active))
+	WriteKV(b, "web_search_active_grants", fmt.Sprintf("%d", active))
 }
 
 func webSearchDoctorEnabled(enabled bool) string {

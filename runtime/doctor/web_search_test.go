@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package doctor
 
 import (
 	"path/filepath"

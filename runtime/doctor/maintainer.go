@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package doctor
 
 import (
 	"crypto/sha256"
@@ -17,7 +17,7 @@ import (
 	"github.com/idolum-ai/aphelion/durableagent"
 )
 
-type doctorMaintainerDelegate struct {
+type MaintainerDelegate struct {
 	Agent        core.DurableAgent
 	MemoryRoot   string
 	ProfileRoot  string
@@ -45,7 +45,7 @@ type doctorArtifactManifestEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func (r *Runtime) doctorMaintainerDelegate() (*doctorMaintainerDelegate, error) {
+func (r *Runtime) MaintainerDelegate() (*MaintainerDelegate, error) {
 	if r == nil || r.store == nil {
 		return nil, nil
 	}
@@ -60,7 +60,7 @@ func (r *Runtime) doctorMaintainerDelegate() (*doctorMaintainerDelegate, error) 
 		if !strings.EqualFold(strings.TrimSpace(agent.Status), "active") {
 			continue
 		}
-		delegate, ok, err := r.doctorMaintainerDelegateFromAgent(agent)
+		delegate, ok, err := r.MaintainerDelegateFromAgent(agent)
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +71,7 @@ func (r *Runtime) doctorMaintainerDelegate() (*doctorMaintainerDelegate, error) 
 	return nil, nil
 }
 
-func (r *Runtime) doctorMaintainerDelegateFromAgent(agent core.DurableAgent) (*doctorMaintainerDelegate, bool, error) {
+func (r *Runtime) MaintainerDelegateFromAgent(agent core.DurableAgent) (*MaintainerDelegate, bool, error) {
 	memoryRoot, err := r.doctorDurableAgentMemoryRoot(agent)
 	if err != nil {
 		return nil, false, err
@@ -91,7 +91,7 @@ func (r *Runtime) doctorMaintainerDelegateFromAgent(agent core.DurableAgent) (*d
 	if !strings.EqualFold(strings.TrimSpace(provenance.Name), doctorMaintainerArchetype) {
 		return nil, false, nil
 	}
-	return &doctorMaintainerDelegate{
+	return &MaintainerDelegate{
 		Agent:        agent,
 		MemoryRoot:   memoryRoot,
 		ProfileRoot:  profileRoot,
@@ -122,7 +122,7 @@ func readDoctorProfileFile(path string) string {
 	return strings.TrimSpace(string(raw))
 }
 
-func (r *Runtime) writeDoctorMaintainerReport(maintainer doctorMaintainerDelegate, report string, telegramReport string, now time.Time) (string, error) {
+func (r *Runtime) WriteMaintainerReport(maintainer MaintainerDelegate, report string, telegramReport string, now time.Time) (string, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -218,30 +218,30 @@ func writeDoctorMaintainerArtifactManifest(artifactRoot string, agentID string, 
 	return nil
 }
 
-func writeDoctorMaintainerDelegate(b *strings.Builder, maintainer *doctorMaintainerDelegate) {
+func writeDoctorMaintainerDelegate(b *strings.Builder, maintainer *MaintainerDelegate) {
 	if maintainer == nil {
-		writeDoctorKV(b, "maintainer_delegate_status", "absent")
-		writeDoctorLine(b, "maintainer_delegate_next=\"create and activate a durable_agent from archetype aphelion-maintainer to route /health diagnose through the maintained child profile\"")
+		WriteKV(b, "maintainer_delegate_status", "absent")
+		WriteLine(b, "maintainer_delegate_next=\"create and activate a durable_agent from archetype aphelion-maintainer to route /health diagnose through the maintained child profile\"")
 		return
 	}
-	writeDoctorKV(b, "maintainer_delegate_status", "active")
-	writeDoctorKV(b, "maintainer_delegate_agent_id", strings.TrimSpace(maintainer.Agent.AgentID))
-	writeDoctorKV(b, "maintainer_delegate_archetype", doctorMaintainerArchetype)
-	writeDoctorKV(b, "maintainer_delegate_memory_root", strings.TrimSpace(maintainer.MemoryRoot))
-	writeDoctorKV(b, "maintainer_delegate_profile_root", strings.TrimSpace(maintainer.ProfileRoot))
-	writeDoctorKV(b, "maintainer_delegate_channel_kind", strings.TrimSpace(maintainer.Agent.ChannelKind))
-	writeDoctorKV(b, "maintainer_delegate_outbound_mode", strings.TrimSpace(maintainer.Agent.LivePolicy.OutboundMode))
-	writeDoctorKV(b, "maintainer_delegate_capabilities", strings.Join(maintainer.Agent.LivePolicy.CapabilityEnvelope, ","))
+	WriteKV(b, "maintainer_delegate_status", "active")
+	WriteKV(b, "maintainer_delegate_agent_id", strings.TrimSpace(maintainer.Agent.AgentID))
+	WriteKV(b, "maintainer_delegate_archetype", doctorMaintainerArchetype)
+	WriteKV(b, "maintainer_delegate_memory_root", strings.TrimSpace(maintainer.MemoryRoot))
+	WriteKV(b, "maintainer_delegate_profile_root", strings.TrimSpace(maintainer.ProfileRoot))
+	WriteKV(b, "maintainer_delegate_channel_kind", strings.TrimSpace(maintainer.Agent.ChannelKind))
+	WriteKV(b, "maintainer_delegate_outbound_mode", strings.TrimSpace(maintainer.Agent.LivePolicy.OutboundMode))
+	WriteKV(b, "maintainer_delegate_capabilities", strings.Join(maintainer.Agent.LivePolicy.CapabilityEnvelope, ","))
 	if strings.TrimSpace(maintainer.RuntimeRules) != "" {
-		writeDoctorLine(b, "Maintainer runtime boundary:")
-		writeDoctorLine(b, truncatePreview(maintainer.RuntimeRules, 1200))
+		WriteLine(b, "Maintainer runtime boundary:")
+		WriteLine(b, truncatePreview(maintainer.RuntimeRules, 1200))
 	}
 	if strings.TrimSpace(maintainer.Charter) != "" {
-		writeDoctorLine(b, "Maintainer charter:")
-		writeDoctorLine(b, truncatePreview(maintainer.Charter, 700))
+		WriteLine(b, "Maintainer charter:")
+		WriteLine(b, truncatePreview(maintainer.Charter, 700))
 	}
 	if strings.TrimSpace(maintainer.Capabilities) != "" {
-		writeDoctorLine(b, "Maintainer archetype capabilities:")
-		writeDoctorLine(b, truncatePreview(maintainer.Capabilities, 700))
+		WriteLine(b, "Maintainer archetype capabilities:")
+		WriteLine(b, truncatePreview(maintainer.Capabilities, 700))
 	}
 }

@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package doctor
 
 import (
 	"fmt"
@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-func (r *Runtime) writeDoctorIssueStatusChecks(b *strings.Builder, input doctorDiagnosticInput) {
-	writeDoctorLine(b, "classification_contract: before reporting an issue as current, compare historical failure evidence with current runtime, prompt, memory, and source-state evidence.")
-	writeDoctorLine(b, "allowed_statuses: active, likely_fixed, historical_resolved, residual_risk, unknown")
-	writeDoctorLine(b, "reporting_rule: if evidence is old and the current-state check passes, report it as historical/resolved or residual risk, not as an active failure.")
+func (r *Runtime) writeDoctorIssueStatusChecks(b *strings.Builder, input DiagnosticInput) {
+	WriteLine(b, "classification_contract: before reporting an issue as current, compare historical failure evidence with current runtime, prompt, memory, and source-state evidence.")
+	WriteLine(b, "allowed_statuses: active, likely_fixed, historical_resolved, residual_risk, unknown")
+	WriteLine(b, "reporting_rule: if evidence is old and the current-state check passes, report it as historical/resolved or residual risk, not as an active failure.")
 
 	identityStatus, identityEvidence := doctorPromptIdentityStatus(input.PromptContext)
 	writeDoctorIssueCheck(b, "prompt_identity_canonical", identityStatus, identityEvidence)
@@ -91,9 +91,9 @@ func (r *Runtime) writeDoctorIssueStatusChecks(b *strings.Builder, input doctorD
 	}
 }
 
-func (r *Runtime) writeDoctorDesignPrincipleHealth(b *strings.Builder, input doctorDiagnosticInput) {
+func (r *Runtime) writeDoctorDesignPrincipleHealth(b *strings.Builder, input DiagnosticInput) {
 	workingRoot := strings.TrimSpace(input.Scope.WorkingRoot)
-	writeDoctorLine(b, "classification_contract: design-principle health is advisory evidence, not runtime authority.")
+	WriteLine(b, "classification_contract: design-principle health is advisory evidence, not runtime authority.")
 
 	principlesOK := doctorSourceContainsAll(workingRoot, "docs/architecture/design-principles.md", []string{
 		"Text is presentation, not authority",
@@ -152,36 +152,40 @@ func (r *Runtime) writeDoctorDesignPrincipleHealth(b *strings.Builder, input doc
 	} else {
 		writeDoctorIssueCheck(b, "short_debug_path_contract", "active", "standard debug breadcrumb schema or status projection wiring was not confirmed")
 	}
-	writeDoctorKV(b, "design_principle_next", "keep typed interpretation and debug breadcrumb gates green during feature work")
+	WriteKV(b, "design_principle_next", "keep typed interpretation and debug breadcrumb gates green during feature work")
 	_ = r
 }
 
 func writeDoctorIssueCheck(b *strings.Builder, issue string, status string, evidence string) {
-	writeDoctorLine(b, fmt.Sprintf("- issue=%s status=%s evidence=%q",
+	WriteLine(b, fmt.Sprintf("- issue=%s status=%s evidence=%q",
 		strings.TrimSpace(issue),
 		strings.TrimSpace(status),
 		truncatePreview(evidence, 600),
 	))
 }
 
-func (r *Runtime) writeDoctorExternalToolInvocationReadiness(b *strings.Builder, input doctorDiagnosticInput) {
+func (r *Runtime) writeDoctorExternalToolInvocationReadiness(b *strings.Builder, input DiagnosticInput) {
 	if r == nil || r.store == nil {
-		writeDoctorLine(b, "external_tool_invocation_readiness: unavailable")
+		WriteLine(b, "external_tool_invocation_readiness: unavailable")
+		return
+	}
+	if r.toolLifecycleStatusSnapshot == nil || r.capabilityStatusSnapshot == nil || r.externalToolInvocationReadinessStatusSnapshot == nil {
+		WriteLine(b, "external_tool_invocation_readiness: unavailable")
 		return
 	}
 	tools, err := r.toolLifecycleStatusSnapshot(20)
 	if err != nil {
-		writeDoctorLine(b, "external_tool_invocation_readiness_error="+strconv.Quote("tool lifecycle: "+err.Error()))
+		WriteLine(b, "external_tool_invocation_readiness_error="+strconv.Quote("tool lifecycle: "+err.Error()))
 		return
 	}
 	_, grants, err := r.capabilityStatusSnapshot(20)
 	if err != nil {
-		writeDoctorLine(b, "external_tool_invocation_readiness_error="+strconv.Quote("capability grants: "+err.Error()))
+		WriteLine(b, "external_tool_invocation_readiness_error="+strconv.Quote("capability grants: "+err.Error()))
 		return
 	}
 	rows := r.externalToolInvocationReadinessStatusSnapshot(tools, grants)
 	if len(rows) == 0 {
-		writeDoctorLine(b, "external_tool_invocation_readiness: none")
+		WriteLine(b, "external_tool_invocation_readiness: none")
 		return
 	}
 	for _, row := range rows {
@@ -193,7 +197,7 @@ func (r *Runtime) writeDoctorExternalToolInvocationReadiness(b *strings.Builder,
 		if selector == "" {
 			selector = "-"
 		}
-		writeDoctorLine(b, fmt.Sprintf("- tool=%s child=%s action=%s selector=%s status=%s why=%q next_repair=%q",
+		WriteLine(b, fmt.Sprintf("- tool=%s child=%s action=%s selector=%s status=%s why=%q next_repair=%q",
 			firstNonEmpty(strings.TrimSpace(row.ToolName), "-"),
 			firstNonEmpty(strings.TrimSpace(row.ChildPrincipal), "-"),
 			firstNonEmpty(strings.TrimSpace(row.Action), "-"),

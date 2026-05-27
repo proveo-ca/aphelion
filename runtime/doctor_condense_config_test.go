@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/pipeline"
+	"github.com/idolum-ai/aphelion/runtime/doctor"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 	"os"
@@ -56,8 +57,8 @@ func TestRunDoctorOnceCondensesOversizedTelegramReport(t *testing.T) {
 	if len(sent) != 2 {
 		t.Fatalf("sent len = %d, want progress and condensed report", len(sent))
 	}
-	if got := doctorCharCount(sent[1].Text); got > doctorTelegramMaxChars {
-		t.Fatalf("telegram report chars = %d, want <= %d", got, doctorTelegramMaxChars)
+	if got := doctor.CharCount(sent[1].Text); got > doctor.TelegramMaxChars {
+		t.Fatalf("telegram report chars = %d, want <= %d", got, doctor.TelegramMaxChars)
 	}
 	if sent[1].Text != summary {
 		t.Fatalf("telegram report = %q, want condensed summary", sent[1].Text)
@@ -95,7 +96,7 @@ func TestRunDoctorOnceCondensesOversizedTelegramReport(t *testing.T) {
 		}
 	}
 	provider.mu.Unlock()
-	if !strings.Contains(summaryPrompt, doctorSummaryMarker) || !strings.Contains(summaryPrompt, "service_single_message_limit_chars=") || !strings.Contains(summaryPrompt, "Full report to condense:") {
+	if !strings.Contains(summaryPrompt, doctor.SummaryMarker) || !strings.Contains(summaryPrompt, "service_single_message_limit_chars=") || !strings.Contains(summaryPrompt, "Full report to condense:") {
 		t.Fatalf("summary prompt = %q, want telegram condensation instructions", summaryPrompt)
 	}
 }
@@ -149,7 +150,7 @@ func TestDoctorCodexWorkEvidenceReviewReportsPersistedInterfaceEvidence(t *testi
 	}
 
 	var b strings.Builder
-	rt.writeDoctorCodexWorkEvidenceReview(context.Background(), &b, doctorDiagnosticInput{Key: key, Now: time.Now().UTC()})
+	rt.writeDoctorCodexWorkEvidenceReview(context.Background(), &b, DiagnosticInput{Key: key, Now: time.Now().UTC()})
 	report := b.String()
 	for _, want := range []string{
 		`codex_work_executor="codex"`,
@@ -326,7 +327,7 @@ type telegramChildBotNoSendOutbound struct{}
 
 	rt := &Runtime{cfg: cfg}
 	var b strings.Builder
-	rt.writeDoctorIssueStatusChecks(&b, doctorDiagnosticInput{Scope: sandbox.Scope{WorkingRoot: cfg.Agent.ExecRoot}})
+	rt.writeDoctorIssueStatusChecks(&b, DiagnosticInput{Scope: sandbox.Scope{WorkingRoot: cfg.Agent.ExecRoot}})
 	report := b.String()
 	if !strings.Contains(report, `issue=telegram_child_bot_runner status=likely_fixed`) {
 		t.Fatalf("doctor issue checks = %s, want generic child bot runner likely_fixed", report)
@@ -395,7 +396,7 @@ func TestDoctorExternalChannelAdapterReadinessProjectsGenericContract(t *testing
 
 	rt := &Runtime{cfg: cfg, store: store}
 	var b strings.Builder
-	rt.writeDoctorExternalChannelAdapterReadiness(&b, doctorDiagnosticInput{Now: now})
+	rt.writeDoctorExternalChannelAdapterReadiness(&b, DiagnosticInput{Now: now})
 	report := b.String()
 	for _, want := range []string{
 		"classification_contract: external-channel adapter readiness is generic parent-owned metadata",
@@ -421,7 +422,7 @@ func TestDoctorDesignPrincipleHealthSurfacesRetiredDebtGates(t *testing.T) {
 
 	rt := &Runtime{}
 	var b strings.Builder
-	rt.writeDoctorDesignPrincipleHealth(&b, doctorDiagnosticInput{Scope: sandbox.Scope{WorkingRoot: cfg.Agent.ExecRoot}})
+	rt.writeDoctorDesignPrincipleHealth(&b, DiagnosticInput{Scope: sandbox.Scope{WorkingRoot: cfg.Agent.ExecRoot}})
 	report := b.String()
 	for _, want := range []string{
 		`issue=design_principles_doc status=likely_fixed`,
@@ -444,7 +445,7 @@ func TestDoctorDesignPrincipleHealthFlagsMissingRetirementEvidence(t *testing.T)
 
 	rt := &Runtime{}
 	var b strings.Builder
-	rt.writeDoctorDesignPrincipleHealth(&b, doctorDiagnosticInput{Scope: sandbox.Scope{WorkingRoot: cfg.Agent.ExecRoot}})
+	rt.writeDoctorDesignPrincipleHealth(&b, DiagnosticInput{Scope: sandbox.Scope{WorkingRoot: cfg.Agent.ExecRoot}})
 	report := b.String()
 	for _, want := range []string{
 		`issue=principle_debt_ledger status=active`,

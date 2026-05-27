@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package mission
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	hiddenInputMissionAsk = "mission_ask_pending"
+	HiddenInputMissionAsk = "mission_ask_pending"
 
 	missionAskMinScore       = 2
 	missionAskHighScore      = 4
@@ -54,7 +54,7 @@ type missionAskObservation struct {
 	NeedsModel  bool
 }
 
-func (r *Runtime) maybeOfferMissionAsk(ctx context.Context, key session.SessionKey, msg core.InboundMessage, ledgerText string, result *turn.Result) error {
+func (r *Runtime) MaybeOfferMissionAsk(ctx context.Context, key session.SessionKey, msg core.InboundMessage, ledgerText string, result *turn.Result) error {
 	if !r.missionAskObserverReady(msg, result) {
 		return nil
 	}
@@ -151,7 +151,7 @@ func (r *Runtime) missionAskHasActiveApprovalSurface(key session.SessionKey) boo
 }
 
 func (r *Runtime) observeMissionAsk(ctx context.Context, key session.SessionKey, msg core.InboundMessage, actor principal.Principal, ledgerText string, result *turn.Result) (missionAskObservation, error) {
-	owner := missionCommandOwner(actor, msg.SenderID)
+	owner := CommandOwner(actor, msg.SenderID)
 	query := strings.TrimSpace(firstRuntimeNonEmpty(ledgerText, msg.Text))
 	if query == "" {
 		return missionAskObservation{}, nil
@@ -288,7 +288,7 @@ func (r *Runtime) missionAskBehaviorSignals(key session.SessionKey, msg core.Inb
 	if strings.TrimSpace(working.Objective) != "" {
 		signals = append(signals, "working_objective")
 	}
-	if result != nil && strings.Contains(result.FloorMetadata, hiddenInputSemanticRecurrence) {
+	if result != nil && strings.Contains(result.FloorMetadata, "semantic_recurrence") {
 		signals = append(signals, "semantic_recurrence")
 	}
 	if r.missionAskRecentDowntime(key, msg) {
@@ -446,7 +446,7 @@ func (r *Runtime) sendMissionAskPrompt(ctx context.Context, key session.SessionK
 		return nil
 	}
 	text := renderMissionAskPromptCard(prompt)
-	messageID, err := sender.SendInlineKeyboard(ctx, msg.ChatID, r.prefixTelegramPresentedText(r.telegramPresentationForMessage(msg), text), missionAskPromptRows(prompt.ID), nil)
+	messageID, err := sender.SendInlineKeyboard(ctx, msg.ChatID, r.prefixTelegramText(msg, text), missionAskPromptRows(prompt.ID), nil)
 	if err != nil {
 		_, _ = r.store.UpdateMissionAskPromptStatus(prompt.ID, prompt.Owner, session.MissionAskStatusExpired, "mission ask card delivery failed", time.Now().UTC())
 		log.Printf("WARN mission ask prompt delivery failed chat_id=%d err=%v", msg.ChatID, err)

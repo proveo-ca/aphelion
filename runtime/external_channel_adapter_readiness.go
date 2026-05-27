@@ -11,6 +11,7 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 	"github.com/idolum-ai/aphelion/durableagent"
 	runtimecodex "github.com/idolum-ai/aphelion/runtime/codex"
+	"github.com/idolum-ai/aphelion/runtime/doctor"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 )
@@ -51,23 +52,23 @@ type externalChannelAdapterWakeStatus struct {
 	BackoffUntil time.Time
 }
 
-func (r *Runtime) writeDoctorExternalChannelAdapterReadiness(b *strings.Builder, input doctorDiagnosticInput) {
-	writeDoctorLine(b, "classification_contract: external-channel adapter readiness is generic parent-owned metadata; adapter-specific probes belong to the child and report upward as review artifacts.")
+func (r *Runtime) writeDoctorExternalChannelAdapterReadiness(b *strings.Builder, input doctor.DiagnosticInput) {
+	doctor.WriteLine(b, "classification_contract: external-channel adapter readiness is generic parent-owned metadata; adapter-specific probes belong to the child and report upward as review artifacts.")
 	if r == nil || r.store == nil {
-		writeDoctorLine(b, "external_channel_adapter_readiness: unavailable")
+		doctor.WriteLine(b, "external_channel_adapter_readiness: unavailable")
 		return
 	}
 	rows, err := r.externalChannelAdapterReadinessSnapshots(input.Now)
 	if err != nil {
-		writeDoctorLine(b, "external_channel_adapter_readiness_error="+strconvQuote(err.Error()))
+		doctor.WriteLine(b, "external_channel_adapter_readiness_error="+strconvQuote(err.Error()))
 		return
 	}
 	if len(rows) == 0 {
-		writeDoctorLine(b, "external_channel_adapter_readiness: none")
+		doctor.WriteLine(b, "external_channel_adapter_readiness: none")
 		return
 	}
 	for _, row := range rows {
-		writeDoctorLine(b, fmt.Sprintf("- agent=%s adapter=%s status=%s failure=%s next_repair=%q",
+		doctor.WriteLine(b, fmt.Sprintf("- agent=%s adapter=%s status=%s failure=%s next_repair=%q",
 			firstNonEmpty(row.AgentID, "-"),
 			firstNonEmpty(row.Adapter, "-"),
 			firstNonEmpty(row.Status, externalChannelReadinessStatusBlocked),
@@ -75,14 +76,14 @@ func (r *Runtime) writeDoctorExternalChannelAdapterReadiness(b *strings.Builder,
 			truncatePreview(row.NextRepair, 220),
 		))
 		for _, layer := range row.Layers {
-			writeDoctorLine(b, fmt.Sprintf("  - layer=%s status=%s evidence=%q",
+			doctor.WriteLine(b, fmt.Sprintf("  - layer=%s status=%s evidence=%q",
 				firstNonEmpty(layer.Name, "-"),
 				firstNonEmpty(layer.Status, "unknown"),
 				truncatePreview(layer.Evidence, 260),
 			))
 		}
 		if row.LastWake != nil {
-			writeDoctorLine(b, fmt.Sprintf("  - layer=last_wake status=%s failure_count=%d backoff_until=%s error=%q",
+			doctor.WriteLine(b, fmt.Sprintf("  - layer=last_wake status=%s failure_count=%d backoff_until=%s error=%q",
 				firstNonEmpty(row.LastWake.Status, "unknown"),
 				row.LastWake.FailureCount,
 				formatDoctorTime(row.LastWake.BackoffUntil),
@@ -236,7 +237,7 @@ func rowWithLastWake(r *Runtime, row externalChannelAdapterReadiness, agent core
 	}
 	row.LastWake = &externalChannelAdapterWakeStatus{
 		Status:       strings.TrimSpace(runtimeState.LastStatus),
-		Error:        redactDoctorText(runtimeState.LastError),
+		Error:        doctor.RedactText(runtimeState.LastError),
 		FailureCount: runtimeState.FailureCount,
 		BackoffUntil: runtimeState.BackoffUntil,
 	}

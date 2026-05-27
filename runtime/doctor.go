@@ -14,38 +14,11 @@ import (
 	"github.com/idolum-ai/aphelion/pipeline"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/prompt"
+	"github.com/idolum-ai/aphelion/runtime/doctor"
 	"github.com/idolum-ai/aphelion/session"
-	"github.com/idolum-ai/aphelion/tool/sandbox"
-	"github.com/idolum-ai/aphelion/workspace"
 )
 
-const (
-	doctorTimeFormat = time.RFC3339
-
-	doctorRequestMarker       = "DOCTOR_DIAGNOSTIC_REQUEST"
-	doctorSummaryMarker       = "DOCTOR_TELEGRAM_SUMMARY_REQUEST"
-	doctorReportFallbackText  = "Health diagnosis finished, but the model returned an empty report."
-	doctorMaintainerArchetype = "aphelion-maintainer"
-	doctorRunTimeout          = 5 * time.Minute
-	doctorPacketMaxChars      = 120000
-	doctorLogTailBytes        = 16000
-	doctorFilePreviewChars    = 700
-	doctorMessageLimit        = 12
-	doctorTelegramMaxChars    = 3800
-	doctorTelegramHardLimit   = 4096
-)
-
-type doctorDiagnosticInput struct {
-	Message       core.InboundMessage
-	Actor         principal.Principal
-	Key           session.SessionKey
-	Session       *session.Session
-	Scope         sandbox.Scope
-	PromptContext *workspace.PromptContext
-	Exec          pipeline.TurnExecutionContract
-	Maintainer    *doctorMaintainerDelegate
-	Now           time.Time
-}
+const doctorRunTimeout = 5 * time.Minute
 
 func (r *Runtime) StartDoctor(ctx context.Context, msg core.InboundMessage) error {
 	if r == nil {
@@ -131,7 +104,8 @@ func (r *Runtime) runDoctorOnce(ctx context.Context, msg core.InboundMessage, no
 		monitor.Finish(ctx, monitorErr)
 	}()
 
-	maintainer, err := r.doctorMaintainerDelegate()
+	doctorRuntime := r.doctorRuntime()
+	maintainer, err := doctorRuntime.MaintainerDelegate()
 	if err != nil {
 		monitorErr = fmt.Errorf("load doctor maintainer delegate: %w", err)
 		return monitorErr
@@ -150,7 +124,7 @@ func (r *Runtime) runDoctorOnce(ctx context.Context, msg core.InboundMessage, no
 	exec := r.executionForTurn(prepared)
 	r.applyModelSlotExecution(&exec, core.ModelSlotDoctor)
 	surfaceDoctorProgress(ctx, progress, "Collecting session, memory, log, and runtime evidence")
-	packet := r.buildDoctorDiagnosticPacket(ctx, doctorDiagnosticInput{
+	packet := doctorRuntime.BuildDiagnosticPacket(ctx, doctor.DiagnosticInput{
 		Message:       msg,
 		Actor:         actor,
 		Key:           key,
@@ -176,10 +150,10 @@ func (r *Runtime) runDoctorOnce(ctx context.Context, msg core.InboundMessage, no
 
 	input := []agent.Message{
 		{Role: "system", Content: systemPrompt, SystemBlocks: systemBlocks},
-		{Role: "system", Content: doctorReadOnlySystemNote()},
+		{Role: "system", Content: doctor.ReadOnlySystemNote()},
 		{Role: "user", Content: packet},
 	}
-	if note := doctorMaintainerSystemNote(maintainer); note != "" {
+	if note := doctor.MaintainerSystemNote(maintainer); note != "" {
 		input = []agent.Message{input[0], input[1], {Role: "system", Content: note}, input[2]}
 	}
 	r.recordExecutionEvent(key, core.ExecutionEventProviderAttemptStarted, "provider", "started", map[string]any{
@@ -231,21 +205,21 @@ func (r *Runtime) runDoctorOnce(ctx context.Context, msg core.InboundMessage, no
 
 	report := strings.TrimSpace(turnResult.Text)
 	if report == "" {
-		report = doctorReportFallbackText
+		report = doctor.ReportFallbackText
 	}
-	report = redactDoctorText(report)
-	telegramReport, summaryUsage := r.telegramDoctorReport(ctx, key, exec, systemPrompt, systemBlocks, report, progress)
+	report = doctor.RedactText(report)
+	telegramReport, summaryUsage := doctorRuntime.TelegramReport(ctx, key, exec, systemPrompt, systemBlocks, report, progress)
 	var maintainerArtifact string
 	if maintainer != nil {
 		surfaceDoctorProgress(ctx, progress, "Storing the full report in maintainer child artifacts")
-		if artifact, artifactErr := r.writeDoctorMaintainerReport(*maintainer, report, telegramReport, now); artifactErr != nil {
+		if artifact, artifactErr := doctorRuntime.WriteMaintainerReport(*maintainer, report, telegramReport, now); artifactErr != nil {
 			r.reportOperationalIssueAsync("doctor_maintainer_artifact", artifactErr)
 		} else {
 			maintainerArtifact = artifact
 		}
 	}
 	surfaceDoctorProgress(ctx, progress, "Saving the health diagnosis report into chat history")
-	newMessages := appendSyntheticTurn(sess, "/health diagnose", report, telegramReport, doctorFloorMetadata(report, telegramReport, maintainer, maintainerArtifact))
+	newMessages := appendSyntheticTurn(sess, "/health diagnose", report, telegramReport, doctor.FloorMetadata(report, telegramReport, maintainer, maintainerArtifact))
 	if err := r.store.Save(sess, newMessages, addTokenUsage(turnResult.TokenUsage, summaryUsage)); err != nil {
 		monitorErr = fmt.Errorf("save health diagnosis report: %w", err)
 		return monitorErr
@@ -265,6 +239,47 @@ func (r *Runtime) runDoctorOnce(ctx context.Context, msg core.InboundMessage, no
 		return monitorErr
 	}
 	return nil
+}
+
+func (r *Runtime) doctorRuntime() *doctor.Runtime {
+	deps := doctor.Dependencies{
+		Config:                        r.cfg,
+		Store:                         r.store,
+		Provider:                      r.provider,
+		GovernorName:                  r.governorName,
+		FaceName:                      r.faceName,
+		AutonomyStatusSnapshot:        r.AutonomyStatusSnapshot,
+		AutonomyStatusSnapshotForChat: r.autonomyStatusSnapshot,
+		ValidateAutonomyLiveOverride:  r.validateAutonomyLiveOverride,
+		ShouldRouteContinuationThroughWorkExecutor:    r.shouldRouteContinuationThroughWorkExecutor,
+		SandboxReadinessSnapshot:                      r.sandboxReadinessSnapshot,
+		ToolLifecycleStatusSnapshot:                   r.toolLifecycleStatusSnapshot,
+		CapabilityStatusSnapshot:                      r.capabilityStatusSnapshot,
+		ExternalToolInvocationReadinessStatusSnapshot: r.externalToolInvocationReadinessStatusSnapshot,
+		TailnetStatusSnapshot:                         r.TailnetStatusSnapshot,
+		StaleRunningTurnRuns:                          r.staleRunningTurnRuns,
+		WriteAuthorityProjection:                      r.writeDoctorAuthorityProjection,
+		WriteProviderHealth:                           r.writeDoctorProviderHealth,
+		WriteExternalChannelAdapterReadiness:          r.writeDoctorExternalChannelAdapterReadiness,
+		ReasoningOptionsForRun:                        r.reasoningOptionsForRun,
+		RecordExecutionEvent:                          r.recordExecutionEvent,
+		ReportOperationalIssueAsync:                   r.reportOperationalIssueAsync,
+	}
+	if r != nil && r.workExecutor != nil {
+		deps.WorkExecutorStatus = func() doctor.WorkExecutorStatus {
+			status := r.workExecutor.Status()
+			return doctor.WorkExecutorStatus{
+				Configured:     status.Configured,
+				Preferred:      status.Preferred,
+				Active:         status.Active,
+				LastAttempted:  status.LastAttempted,
+				FallbackReason: status.FallbackReason,
+				LastError:      status.LastError,
+				UpdatedAt:      status.UpdatedAt,
+			}
+		}
+	}
+	return doctor.NewRuntime(deps)
 }
 
 func (r *Runtime) resolveDoctorAdmin(msg core.InboundMessage) (principal.Principal, error) {

@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package doctor
 
 import (
 	"context"
@@ -16,45 +16,45 @@ import (
 	"github.com/idolum-ai/aphelion/session"
 )
 
-func (r *Runtime) telegramDoctorReport(ctx context.Context, key session.SessionKey, exec pipeline.TurnExecutionContract, systemPrompt string, systemBlocks []agent.SystemBlock, report string, progress *toolProgressReporter) (string, core.TokenUsage) {
-	report = strings.TrimSpace(redactDoctorText(report))
+func (r *Runtime) TelegramReport(ctx context.Context, key session.SessionKey, exec pipeline.TurnExecutionContract, systemPrompt string, systemBlocks []agent.SystemBlock, report string, progress Progress) (string, core.TokenUsage) {
+	report = strings.TrimSpace(RedactText(report))
 	if report == "" {
-		return doctorReportFallbackText, core.TokenUsage{}
+		return ReportFallbackText, core.TokenUsage{}
 	}
-	if doctorCharCount(report) <= doctorTelegramMaxChars {
+	if CharCount(report) <= TelegramMaxChars {
 		return report, core.TokenUsage{}
 	}
 	surfaceDoctorProgress(ctx, progress, "Condensing the health diagnosis report for one Telegram message")
-	limitText := strconv.Itoa(doctorTelegramMaxChars)
+	limitText := strconv.Itoa(TelegramMaxChars)
 	input := []agent.Message{
 		{Role: "system", Content: systemPrompt, SystemBlocks: systemBlocks},
-		{Role: "system", Content: doctorTelegramSummarySystemNote()},
+		{Role: "system", Content: TelegramSummarySystemNote()},
 		{Role: "user", Content: strings.Join([]string{
-			doctorSummaryMarker,
-			"telegram_hard_limit_chars=" + strconv.Itoa(doctorTelegramHardLimit),
+			SummaryMarker,
+			"telegram_hard_limit_chars=" + strconv.Itoa(TelegramHardLimit),
 			"service_single_message_limit_chars=" + limitText,
-			"full_report_chars=" + strconv.Itoa(doctorCharCount(report)),
+			"full_report_chars=" + strconv.Itoa(CharCount(report)),
 			"",
 			"Full report to condense:",
 			report,
 		}, "\n")},
 	}
-	r.recordExecutionEvent(key, core.ExecutionEventProviderAttemptStarted, "provider", "started", map[string]any{
+	recordExecutionEvent(r, key, core.ExecutionEventProviderAttemptStarted, "provider", "started", map[string]any{
 		"backend":              strings.TrimSpace(exec.Backend),
 		"provider":             strings.TrimSpace(exec.ProviderName),
 		"model":                strings.TrimSpace(exec.ModelName),
 		"provider_path":        strings.Join(exec.ProviderPath, ","),
 		"run_kind":             string(session.TurnRunKindDoctor),
 		"doctor_summary_stage": "telegram_condense",
-		"target_chars":         doctorTelegramMaxChars,
+		"target_chars":         TelegramMaxChars,
 	}, time.Now().UTC())
 	turnResult, _, err := agent.RunTurn(ctx, exec.Provider, nil, &agent.Budget{
 		Max:     2,
 		Caution: 0.7,
 		Warning: 0.9,
-	}, r.reasoningOptionsForRun(session.TurnRunKindDoctor), input)
+	}, reasoningOptionsForRun(r, session.TurnRunKindDoctor), input)
 	if err != nil {
-		r.recordExecutionEvent(key, core.ExecutionEventProviderAttemptFailed, "provider", "failed", map[string]any{
+		recordExecutionEvent(r, key, core.ExecutionEventProviderAttemptFailed, "provider", "failed", map[string]any{
 			"backend":              strings.TrimSpace(exec.Backend),
 			"provider":             strings.TrimSpace(exec.ProviderName),
 			"model":                strings.TrimSpace(exec.ModelName),
@@ -62,16 +62,16 @@ func (r *Runtime) telegramDoctorReport(ctx context.Context, key session.SessionK
 			"run_kind":             string(session.TurnRunKindDoctor),
 			"doctor_summary_stage": "telegram_condense",
 		}, time.Now().UTC())
-		r.reportOperationalIssueAsync("doctor_summary", err)
-		return doctorFitTelegramReport(report, doctorTelegramMaxChars), core.TokenUsage{}
+		reportOperationalIssueAsync(r, "doctor_summary", err)
+		return FitTelegramReport(report, TelegramMaxChars), core.TokenUsage{}
 	}
 	if turnResult == nil {
 		err := fmt.Errorf("doctor telegram summary returned no turn result")
-		r.reportOperationalIssueAsync("doctor_summary", err)
-		return doctorFitTelegramReport(report, doctorTelegramMaxChars), core.TokenUsage{}
+		reportOperationalIssueAsync(r, "doctor_summary", err)
+		return FitTelegramReport(report, TelegramMaxChars), core.TokenUsage{}
 	}
 	if strings.TrimSpace(turnResult.ProviderFailure) != "" {
-		r.recordExecutionEvent(key, core.ExecutionEventProviderAttemptFailed, "provider", "failed", map[string]any{
+		recordExecutionEvent(r, key, core.ExecutionEventProviderAttemptFailed, "provider", "failed", map[string]any{
 			"backend":              strings.TrimSpace(exec.Backend),
 			"provider":             strings.TrimSpace(exec.ProviderName),
 			"model":                strings.TrimSpace(exec.ModelName),
@@ -79,26 +79,26 @@ func (r *Runtime) telegramDoctorReport(ctx context.Context, key session.SessionK
 			"run_kind":             string(session.TurnRunKindDoctor),
 			"doctor_summary_stage": "telegram_condense",
 		}, time.Now().UTC())
-		r.reportOperationalIssueAsync("doctor_summary", fmt.Errorf("%s", strings.TrimSpace(turnResult.ProviderFailure)))
-		return doctorFitTelegramReport(report, doctorTelegramMaxChars), turnResult.TokenUsage
+		reportOperationalIssueAsync(r, "doctor_summary", fmt.Errorf("%s", strings.TrimSpace(turnResult.ProviderFailure)))
+		return FitTelegramReport(report, TelegramMaxChars), turnResult.TokenUsage
 	}
-	r.recordExecutionEvent(key, core.ExecutionEventProviderAttemptSucceeded, "provider", "succeeded", map[string]any{
+	recordExecutionEvent(r, key, core.ExecutionEventProviderAttemptSucceeded, "provider", "succeeded", map[string]any{
 		"backend":              strings.TrimSpace(exec.Backend),
 		"provider":             strings.TrimSpace(exec.ProviderName),
 		"model":                strings.TrimSpace(exec.ModelName),
 		"run_kind":             string(session.TurnRunKindDoctor),
 		"doctor_summary_stage": "telegram_condense",
-		"target_chars":         doctorTelegramMaxChars,
+		"target_chars":         TelegramMaxChars,
 	}, time.Now().UTC())
 
-	summary := strings.TrimSpace(redactDoctorText(turnResult.Text))
+	summary := strings.TrimSpace(RedactText(turnResult.Text))
 	if summary == "" {
-		summary = doctorFitTelegramReport(report, doctorTelegramMaxChars)
+		summary = FitTelegramReport(report, TelegramMaxChars)
 	}
-	return doctorFitTelegramReport(summary, doctorTelegramMaxChars), turnResult.TokenUsage
+	return FitTelegramReport(summary, TelegramMaxChars), turnResult.TokenUsage
 }
 
-func doctorTelegramSummarySystemNote() string {
+func TelegramSummarySystemNote() string {
 	return strings.Join([]string{
 		"Role: You are compressing a /health diagnose report for Telegram.",
 		"## Goal",
@@ -121,12 +121,12 @@ func doctorTelegramSummarySystemNote() string {
 	}, "\n")
 }
 
-func doctorFloorMetadata(fullReport string, telegramReport string, maintainer *doctorMaintainerDelegate, maintainerArtifact string) string {
-	fullChars := doctorCharCount(fullReport)
-	telegramChars := doctorCharCount(telegramReport)
+func FloorMetadata(fullReport string, telegramReport string, maintainer *MaintainerDelegate, maintainerArtifact string) string {
+	fullChars := CharCount(fullReport)
+	telegramChars := CharCount(telegramReport)
 	parts := make([]string, 0, 5)
 	if fullChars > 0 || telegramChars > 0 {
-		parts = append(parts, fmt.Sprintf("doctor_full_report_chars=%d doctor_telegram_report_chars=%d doctor_telegram_limit_chars=%d", fullChars, telegramChars, doctorTelegramMaxChars))
+		parts = append(parts, fmt.Sprintf("doctor_full_report_chars=%d doctor_telegram_report_chars=%d doctor_telegram_limit_chars=%d", fullChars, telegramChars, TelegramMaxChars))
 	}
 	if maintainer != nil {
 		parts = append(parts, "doctor_delegate_agent_id="+strings.TrimSpace(maintainer.Agent.AgentID))
@@ -140,19 +140,19 @@ func doctorFloorMetadata(fullReport string, telegramReport string, maintainer *d
 	return strings.Join(parts, " ")
 }
 
-func doctorFitTelegramReport(text string, limit int) string {
-	text = strings.TrimSpace(redactDoctorText(text))
+func FitTelegramReport(text string, limit int) string {
+	text = strings.TrimSpace(RedactText(text))
 	if text == "" {
-		return doctorReportFallbackText
+		return ReportFallbackText
 	}
 	if limit <= 0 {
-		limit = doctorTelegramMaxChars
+		limit = TelegramMaxChars
 	}
-	if doctorCharCount(text) <= limit {
+	if CharCount(text) <= limit {
 		return text
 	}
 	suffix := "\n\n[trimmed to fit one Telegram message]"
-	suffixChars := doctorCharCount(suffix)
+	suffixChars := CharCount(suffix)
 	if suffixChars >= limit {
 		return string([]rune(text)[:limit])
 	}
@@ -176,11 +176,11 @@ func doctorFitTelegramReport(text string, limit int) string {
 	return strings.TrimSpace(string(runes[:cut])) + suffix
 }
 
-func doctorCharCount(text string) int {
+func CharCount(text string) int {
 	return utf8.RuneCountInString(text)
 }
 
-func doctorReadOnlySystemNote() string {
+func ReadOnlySystemNote() string {
 	return strings.Join([]string{
 		"You are running /health diagnose.",
 		"This is a read-only diagnostic pass. Do not claim to have edited files, run commands, restarted services, changed memory, or committed code.",
@@ -194,7 +194,7 @@ func doctorReadOnlySystemNote() string {
 	}, "\n")
 }
 
-func doctorMaintainerSystemNote(maintainer *doctorMaintainerDelegate) string {
+func MaintainerSystemNote(maintainer *MaintainerDelegate) string {
 	if maintainer == nil {
 		return ""
 	}

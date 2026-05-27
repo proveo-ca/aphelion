@@ -15,6 +15,7 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 	memstore "github.com/idolum-ai/aphelion/memory"
 	"github.com/idolum-ai/aphelion/principal"
+	"github.com/idolum-ai/aphelion/runtime/mission"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 	"github.com/idolum-ai/aphelion/turn"
@@ -179,7 +180,7 @@ func (r *Runtime) pendingMissionAskHiddenInput(actor principal.Principal, key se
 	if r == nil || r.store == nil {
 		return ""
 	}
-	owner := missionCommandOwner(actor, actor.TelegramUserID)
+	owner := mission.CommandOwner(actor, actor.TelegramUserID)
 	if owner == "" || owner == "system" {
 		return ""
 	}

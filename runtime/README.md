@@ -54,4 +54,8 @@ Authoritative split for maintenance turns (heartbeat/cron/recovery):
 
 ## Leaf Packages
 
+Runtime leaf packages are bounded helper domains consumed by the top-level `runtime` shell. They may own local mechanics and pure formatting/classification logic, but they must not own ingress/session/lifecycle wiring or broad runtime policy.
+
 - `runtime/codex`: bounded Codex app-server helper package. It owns the app-server client, status prompt helpers, artifact manifest helpers, work-event projection helpers, and command-effect taxonomy used by the Codex work lane. Top-level `runtime` still owns durable-agent wake wiring, executor selection, lifecycle loops, and authority state integration.
+- `runtime/doctor`: bounded `/doctor` diagnostics package. It owns doctor report assembly helpers, evidence sections, Telegram condensation helpers, maintainer artifact formatting, and doctor-local adapter contracts. Top-level `runtime` still owns command admission, principal resolution, storage/session wiring, delivery, and operational issue reporting.
+- `runtime/mission`: bounded Mission Ledger helper package. It owns mission command rendering, Mission Question classifier/prompt mechanics, working-objective helper logic, and mission proposal formatting. Top-level `runtime` still owns hidden-input assembly, transport callback integration, review-event delivery, and session lifecycle wiring.

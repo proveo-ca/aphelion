@@ -5,6 +5,7 @@ package runtime
 import (
 	"context"
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/runtime/doctor"
 	"github.com/idolum-ai/aphelion/session"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 func TestDoctorTelegramSummarySystemNoteUsesOutcomeStructure(t *testing.T) {
 	t.Parallel()
 
-	note := doctorTelegramSummarySystemNote()
+	note := doctor.TelegramSummarySystemNote()
 	for _, want := range []string{
 		"Role: You are compressing a /health diagnose report for Telegram.",
 		"## Goal",
@@ -470,7 +471,7 @@ func TestRunDoctorOncePersistsDeliversAndRedactsDiagnostics(t *testing.T) {
 	}
 	provider.mu.Unlock()
 	for _, want := range []string{
-		doctorRequestMarker,
+		RequestMarker,
 		"memory/knowledge.md",
 		"provider.attempt.failed",
 		"semantic_enabled",

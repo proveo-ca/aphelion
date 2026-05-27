@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package doctor
 
 import (
 	"context"
@@ -25,17 +25,17 @@ func writeDoctorFileStat(b *strings.Builder, root string, rel string) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			writeDoctorLine(b, fmt.Sprintf("- file=%s missing=true", rel))
+			WriteLine(b, fmt.Sprintf("- file=%s missing=true", rel))
 			return
 		}
-		writeDoctorLine(b, fmt.Sprintf("- file=%s error=%q", rel, err.Error()))
+		WriteLine(b, fmt.Sprintf("- file=%s error=%q", rel, err.Error()))
 		return
 	}
 	if info.IsDir() {
-		writeDoctorLine(b, fmt.Sprintf("- file=%s directory=true", rel))
+		WriteLine(b, fmt.Sprintf("- file=%s directory=true", rel))
 		return
 	}
-	writeDoctorLine(b, fmt.Sprintf("- file=%s bytes=%d modified=%s", rel, info.Size(), info.ModTime().UTC().Format(time.RFC3339)))
+	WriteLine(b, fmt.Sprintf("- file=%s bytes=%d modified=%s", rel, info.Size(), info.ModTime().UTC().Format(time.RFC3339)))
 }
 
 func writeDoctorDirStat(b *strings.Builder, dir string, label string) {
@@ -59,13 +59,13 @@ func writeDoctorDirStat(b *strings.Builder, dir string, label string) {
 	})
 	if err != nil {
 		if os.IsNotExist(err) {
-			writeDoctorLine(b, fmt.Sprintf("- dir=%s missing=true", label))
+			WriteLine(b, fmt.Sprintf("- dir=%s missing=true", label))
 			return
 		}
-		writeDoctorLine(b, fmt.Sprintf("- dir=%s error=%q", label, err.Error()))
+		WriteLine(b, fmt.Sprintf("- dir=%s error=%q", label, err.Error()))
 		return
 	}
-	writeDoctorLine(b, fmt.Sprintf("- dir=%s files=%d bytes=%d", label, count, bytes))
+	WriteLine(b, fmt.Sprintf("- dir=%s files=%d bytes=%d", label, count, bytes))
 }
 
 func (r *Runtime) writeDoctorExecutionEvents(ctx context.Context, b *strings.Builder, key session.SessionKey, now time.Time) {
@@ -74,16 +74,16 @@ func (r *Runtime) writeDoctorExecutionEvents(ctx context.Context, b *strings.Bui
 	}
 	chatEvents, err := r.store.ExecutionEventsByChat(key.ChatID, now.Add(-24*time.Hour), 60)
 	if err != nil {
-		writeDoctorLine(b, "chat_events_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "chat_events_error="+strconv.Quote(err.Error()))
 	} else {
-		writeDoctorLine(b, "chat_events_last_24h:")
+		WriteLine(b, "chat_events_last_24h:")
 		writeDoctorEvents(b, chatEvents, 20)
 	}
 	recentEvents, err := r.store.ExecutionEventsRecent(80)
 	if err != nil {
-		writeDoctorLine(b, "recent_events_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "recent_events_error="+strconv.Quote(err.Error()))
 	} else {
-		writeDoctorLine(b, "recent_system_events:")
+		WriteLine(b, "recent_system_events:")
 		writeDoctorEvents(b, recentEvents, 25)
 	}
 	_ = ctx
@@ -95,12 +95,12 @@ func (r *Runtime) writeDoctorRuntimeAdjudications(ctx context.Context, b *string
 	}
 	chatEvents, err := r.store.ExecutionEventsByChat(key.ChatID, now.Add(-24*time.Hour), 120)
 	if err != nil {
-		writeDoctorLine(b, "adjudications_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "adjudications_error="+strconv.Quote(err.Error()))
 		return
 	}
 	adjudications := statusAdjudicationsFromExecutionEvents(chatEvents, 8)
 	if len(adjudications) == 0 {
-		writeDoctorLine(b, "- none")
+		WriteLine(b, "- none")
 		return
 	}
 	for _, adjudication := range adjudications {
@@ -115,7 +115,7 @@ func (r *Runtime) writeDoctorRuntimeAdjudications(ctx context.Context, b *string
 				details = append(details, finding.Detail)
 			}
 		}
-		writeDoctorLine(b, fmt.Sprintf("- time=%s chat_id=%d seq=%d kind=%s surface=%s action=%s label=%q findings=%q detail=%q",
+		WriteLine(b, fmt.Sprintf("- time=%s chat_id=%d seq=%d kind=%s surface=%s action=%s label=%q findings=%q detail=%q",
 			adjudication.CreatedAt.UTC().Format(time.RFC3339),
 			adjudication.ChatID,
 			adjudication.Seq,
@@ -132,7 +132,7 @@ func (r *Runtime) writeDoctorRuntimeAdjudications(ctx context.Context, b *string
 
 func writeDoctorEvents(b *strings.Builder, events []session.ExecutionEvent, limit int) {
 	if len(events) == 0 {
-		writeDoctorLine(b, "- none")
+		WriteLine(b, "- none")
 		return
 	}
 	if limit <= 0 || limit > len(events) {
@@ -140,7 +140,7 @@ func writeDoctorEvents(b *strings.Builder, events []session.ExecutionEvent, limi
 	}
 	for i := 0; i < limit; i++ {
 		event := events[i]
-		writeDoctorLine(b, fmt.Sprintf("- time=%s chat_id=%d seq=%d type=%s stage=%s status=%s payload=%s",
+		WriteLine(b, fmt.Sprintf("- time=%s chat_id=%d seq=%d type=%s stage=%s status=%s payload=%s",
 			event.CreatedAt.UTC().Format(time.RFC3339),
 			event.ChatID,
 			event.Seq,
@@ -156,25 +156,29 @@ func (r *Runtime) writeDoctorTurnRuns(ctx context.Context, b *strings.Builder, n
 	if r == nil || r.store == nil {
 		return
 	}
-	latest, err := r.store.LatestTurnRunsByChat(40)
-	if err != nil {
-		writeDoctorLine(b, "latest_turn_runs_error="+strconv.Quote(err.Error()))
+	latest, latestErr := r.store.LatestTurnRunsByChat(40)
+	if latestErr != nil {
+		WriteLine(b, "latest_turn_runs_error="+strconv.Quote(latestErr.Error()))
 	} else {
-		writeDoctorLine(b, "latest_turn_runs_by_chat:")
+		WriteLine(b, "latest_turn_runs_by_chat:")
 		writeDoctorRuns(b, latest, 20)
 	}
-	pending, err := r.store.PendingRecoveryTurnRuns(40)
-	if err != nil {
-		writeDoctorLine(b, "pending_recovery_error="+strconv.Quote(err.Error()))
+	pending, pendingErr := r.store.PendingRecoveryTurnRuns(40)
+	if pendingErr != nil {
+		WriteLine(b, "pending_recovery_error="+strconv.Quote(pendingErr.Error()))
 	} else {
-		writeDoctorLine(b, "pending_recovery_runs:")
+		WriteLine(b, "pending_recovery_runs:")
 		writeDoctorRuns(b, pending, 12)
 	}
-	stale, err := r.staleRunningTurnRuns(now)
-	if err != nil {
-		writeDoctorLine(b, "stale_turn_runs_error="+strconv.Quote(err.Error()))
+	var stale []session.TurnRun
+	var staleErr error
+	if r.staleRunningTurnRuns != nil {
+		stale, staleErr = r.staleRunningTurnRuns(now)
+	}
+	if staleErr != nil {
+		WriteLine(b, "stale_turn_runs_error="+strconv.Quote(staleErr.Error()))
 	} else {
-		writeDoctorLine(b, "stale_running_turns:")
+		WriteLine(b, "stale_running_turns:")
 		writeDoctorRuns(b, stale, 12)
 	}
 	_ = ctx
@@ -182,7 +186,7 @@ func (r *Runtime) writeDoctorTurnRuns(ctx context.Context, b *strings.Builder, n
 
 func writeDoctorRuns(b *strings.Builder, runs []session.TurnRun, limit int) {
 	if len(runs) == 0 {
-		writeDoctorLine(b, "- none")
+		WriteLine(b, "- none")
 		return
 	}
 	if limit <= 0 || limit > len(runs) {
@@ -190,7 +194,7 @@ func writeDoctorRuns(b *strings.Builder, runs []session.TurnRun, limit int) {
 	}
 	for i := 0; i < limit; i++ {
 		run := runs[i]
-		writeDoctorLine(b, fmt.Sprintf("- id=%d chat_id=%d kind=%s status=%s started=%s last_activity=%s tools=%d/%d request=%q last_tool=%q last_error=%q",
+		WriteLine(b, fmt.Sprintf("- id=%d chat_id=%d kind=%s status=%s started=%s last_activity=%s tools=%d/%d request=%q last_tool=%q last_error=%q",
 			run.ID,
 			run.ChatID,
 			run.Kind,
@@ -211,36 +215,36 @@ func (r *Runtime) writeDoctorSemanticStats(b *strings.Builder) {
 		return
 	}
 	dbPath := filepath.Join(filepath.Dir(r.cfg.Sessions.DBPath), "semantic.db")
-	writeDoctorKV(b, "semantic_enabled", strconv.FormatBool(r.cfg.Memory.Semantic.Enabled))
-	writeDoctorKV(b, "semantic_db_path", dbPath)
+	WriteKV(b, "semantic_enabled", strconv.FormatBool(r.cfg.Memory.Semantic.Enabled))
+	WriteKV(b, "semantic_db_path", dbPath)
 	if _, err := os.Stat(dbPath); err != nil {
 		if os.IsNotExist(err) {
-			writeDoctorLine(b, "semantic_db_missing=true")
+			WriteLine(b, "semantic_db_missing=true")
 			return
 		}
-		writeDoctorLine(b, "semantic_db_stat_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "semantic_db_stat_error="+strconv.Quote(err.Error()))
 		return
 	}
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		writeDoctorLine(b, "semantic_db_open_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "semantic_db_open_error="+strconv.Quote(err.Error()))
 		return
 	}
 	defer db.Close()
 	var docs, chunks int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM semantic_documents`).Scan(&docs); err != nil {
-		writeDoctorLine(b, "semantic_documents_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "semantic_documents_error="+strconv.Quote(err.Error()))
 		return
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM semantic_chunks`).Scan(&chunks); err != nil {
-		writeDoctorLine(b, "semantic_chunks_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "semantic_chunks_error="+strconv.Quote(err.Error()))
 		return
 	}
-	writeDoctorKV(b, "semantic_documents", strconv.Itoa(docs))
-	writeDoctorKV(b, "semantic_chunks", strconv.Itoa(chunks))
+	WriteKV(b, "semantic_documents", strconv.Itoa(docs))
+	WriteKV(b, "semantic_chunks", strconv.Itoa(chunks))
 	rows, err := db.Query(`SELECT import_state, COUNT(*) FROM semantic_documents GROUP BY import_state ORDER BY import_state`)
 	if err != nil {
-		writeDoctorLine(b, "semantic_import_state_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "semantic_import_state_error="+strconv.Quote(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -248,70 +252,74 @@ func (r *Runtime) writeDoctorSemanticStats(b *strings.Builder) {
 		var state string
 		var count int
 		if err := rows.Scan(&state, &count); err != nil {
-			writeDoctorLine(b, "semantic_import_state_scan_error="+strconv.Quote(err.Error()))
+			WriteLine(b, "semantic_import_state_scan_error="+strconv.Quote(err.Error()))
 			return
 		}
-		writeDoctorLine(b, fmt.Sprintf("- import_state=%s documents=%d", state, count))
+		WriteLine(b, fmt.Sprintf("- import_state=%s documents=%d", state, count))
 	}
 }
 
 func (r *Runtime) writeDoctorTailnetDiagnostics(ctx context.Context, b *strings.Builder) {
 	if r == nil || r.cfg == nil {
-		writeDoctorLine(b, "tailnet: runtime unavailable")
+		WriteLine(b, "tailnet: runtime unavailable")
 		return
 	}
-	writeDoctorKV(b, "tailscale_enabled", strconv.FormatBool(r.cfg.Tailscale.Enabled))
-	writeDoctorKV(b, "tailscale_backend", strings.TrimSpace(r.cfg.Tailscale.Backend))
-	writeDoctorKV(b, "tailscale_expected_tailnet", strings.TrimSpace(r.cfg.Tailscale.ExpectedTailnet))
-	writeDoctorKV(b, "tailscale_expected_hostname", strings.TrimSpace(r.cfg.Tailscale.ExpectedHostname))
-	writeDoctorKV(b, "tailscale_expected_tags", strings.Join(r.cfg.Tailscale.ExpectedTags, ","))
+	WriteKV(b, "tailscale_enabled", strconv.FormatBool(r.cfg.Tailscale.Enabled))
+	WriteKV(b, "tailscale_backend", strings.TrimSpace(r.cfg.Tailscale.Backend))
+	WriteKV(b, "tailscale_expected_tailnet", strings.TrimSpace(r.cfg.Tailscale.ExpectedTailnet))
+	WriteKV(b, "tailscale_expected_hostname", strings.TrimSpace(r.cfg.Tailscale.ExpectedHostname))
+	WriteKV(b, "tailscale_expected_tags", strings.Join(r.cfg.Tailscale.ExpectedTags, ","))
+	if r.TailnetStatusSnapshot == nil {
+		WriteLine(b, "tailnet_snapshot: unavailable")
+		return
+	}
 	snapshot, err := r.TailnetStatusSnapshot(ctx)
 	if err != nil {
-		writeDoctorLine(b, "tailnet_snapshot_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "tailnet_snapshot_error="+strconv.Quote(err.Error()))
 		return
 	}
-	writeDoctorKV(b, "tailnet_status", snapshot.Status)
-	writeDoctorKV(b, "tailnet_summary", snapshot.Summary)
-	writeDoctorKV(b, "tailnet_backend_state", snapshot.BackendState)
-	writeDoctorKV(b, "tailnet_node", firstNonEmpty(strings.TrimSpace(snapshot.DNSName), strings.TrimSpace(snapshot.HostName)))
-	writeDoctorKV(b, "tailnet_name", snapshot.TailnetName)
-	writeDoctorKV(b, "tailnet_ips", strings.Join(snapshot.TailscaleIPs, ","))
-	writeDoctorKV(b, "tailnet_tags", strings.Join(snapshot.Tags, ","))
-	writeDoctorKV(b, "tailnet_netcheck", snapshot.NetcheckSummary)
+	WriteKV(b, "tailnet_status", snapshot.Status)
+	WriteKV(b, "tailnet_summary", snapshot.Summary)
+	WriteKV(b, "tailnet_backend_state", snapshot.BackendState)
+	WriteKV(b, "tailnet_node", firstNonEmpty(strings.TrimSpace(snapshot.DNSName), strings.TrimSpace(snapshot.HostName)))
+	WriteKV(b, "tailnet_name", snapshot.TailnetName)
+	WriteKV(b, "tailnet_ips", strings.Join(snapshot.TailscaleIPs, ","))
+	WriteKV(b, "tailnet_tags", strings.Join(snapshot.Tags, ","))
+	WriteKV(b, "tailnet_netcheck", snapshot.NetcheckSummary)
 	if snapshot.Parent != nil {
 		parent := snapshot.Parent
-		writeDoctorKV(b, "tailnet_parent_enabled", strconv.FormatBool(parent.Enabled))
-		writeDoctorKV(b, "tailnet_parent_running", strconv.FormatBool(parent.Running))
-		writeDoctorKV(b, "tailnet_parent_hostname", parent.Hostname)
-		writeDoctorKV(b, "tailnet_parent_state_dir", parent.StateDir)
-		writeDoctorKV(b, "tailnet_parent_listen_addr", parent.ListenAddr)
-		writeDoctorKV(b, "tailnet_parent_magic_url", parent.MagicDNSURL)
-		writeDoctorKV(b, "tailnet_parent_auth_key_source", parent.AuthKeySource)
-		writeDoctorKV(b, "tailnet_parent_last_error", parent.LastError)
+		WriteKV(b, "tailnet_parent_enabled", strconv.FormatBool(parent.Enabled))
+		WriteKV(b, "tailnet_parent_running", strconv.FormatBool(parent.Running))
+		WriteKV(b, "tailnet_parent_hostname", parent.Hostname)
+		WriteKV(b, "tailnet_parent_state_dir", parent.StateDir)
+		WriteKV(b, "tailnet_parent_listen_addr", parent.ListenAddr)
+		WriteKV(b, "tailnet_parent_magic_url", parent.MagicDNSURL)
+		WriteKV(b, "tailnet_parent_auth_key_source", parent.AuthKeySource)
+		WriteKV(b, "tailnet_parent_last_error", parent.LastError)
 	}
 	if len(snapshot.Surfaces) == 0 {
-		writeDoctorLine(b, "tailnet_surfaces: none")
+		WriteLine(b, "tailnet_surfaces: none")
 	} else {
-		writeDoctorLine(b, "tailnet_surfaces:")
+		WriteLine(b, "tailnet_surfaces:")
 		for _, surface := range snapshot.Surfaces {
-			writeDoctorLine(b, fmt.Sprintf("- id=%s status=%s kind=%s name=%s url=%q error=%q", strings.TrimSpace(surface.SurfaceID), strings.TrimSpace(surface.Status), strings.TrimSpace(surface.SurfaceKind), strings.TrimSpace(surface.Name), truncatePreview(surface.URL, 220), truncatePreview(surface.LastError, 220)))
+			WriteLine(b, fmt.Sprintf("- id=%s status=%s kind=%s name=%s url=%q error=%q", strings.TrimSpace(surface.SurfaceID), strings.TrimSpace(surface.Status), strings.TrimSpace(surface.SurfaceKind), strings.TrimSpace(surface.Name), truncatePreview(surface.URL, 220), truncatePreview(surface.LastError, 220)))
 		}
 	}
 	if len(snapshot.GrantBindings) == 0 {
-		writeDoctorLine(b, "tailnet_grant_bindings: none")
+		WriteLine(b, "tailnet_grant_bindings: none")
 	} else {
-		writeDoctorLine(b, "tailnet_grant_bindings:")
+		WriteLine(b, "tailnet_grant_bindings:")
 		for _, binding := range snapshot.GrantBindings {
-			writeDoctorLine(b, fmt.Sprintf("- id=%s status=%s grant=%s surface=%s target=%s drift=%q", strings.TrimSpace(binding.BindingID), strings.TrimSpace(binding.Status), strings.TrimSpace(binding.GrantID), strings.TrimSpace(binding.SurfaceID), strings.TrimSpace(binding.TargetResource), truncatePreview(binding.DriftReason, 220)))
+			WriteLine(b, fmt.Sprintf("- id=%s status=%s grant=%s surface=%s target=%s drift=%q", strings.TrimSpace(binding.BindingID), strings.TrimSpace(binding.Status), strings.TrimSpace(binding.GrantID), strings.TrimSpace(binding.SurfaceID), strings.TrimSpace(binding.TargetResource), truncatePreview(binding.DriftReason, 220)))
 		}
 	}
 	if len(snapshot.Issues) == 0 {
-		writeDoctorLine(b, "tailnet_issues: none")
+		WriteLine(b, "tailnet_issues: none")
 		return
 	}
-	writeDoctorLine(b, "tailnet_issues:")
+	WriteLine(b, "tailnet_issues:")
 	for _, issue := range snapshot.Issues {
-		writeDoctorLine(b, fmt.Sprintf("- code=%s severity=%s summary=%q", strings.TrimSpace(issue.Code), strings.TrimSpace(issue.Severity), truncatePreview(issue.Summary, 300)))
+		WriteLine(b, fmt.Sprintf("- code=%s severity=%s summary=%q", strings.TrimSpace(issue.Code), strings.TrimSpace(issue.Severity), truncatePreview(issue.Summary, 300)))
 	}
 }
 
@@ -320,27 +328,27 @@ func (r *Runtime) writeDoctorLogTail(b *strings.Builder) {
 		return
 	}
 	logPath := filepath.Join(filepath.Dir(r.cfg.Sessions.DBPath), "aphelion.log")
-	writeDoctorKV(b, "log_path", logPath)
-	data, err := readDoctorTail(logPath, doctorLogTailBytes)
+	WriteKV(b, "log_path", logPath)
+	data, err := readDoctorTail(logPath, LogTailBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
-			writeDoctorLine(b, "log_missing=true")
+			WriteLine(b, "log_missing=true")
 			return
 		}
-		writeDoctorLine(b, "log_tail_error="+strconv.Quote(err.Error()))
+		WriteLine(b, "log_tail_error="+strconv.Quote(err.Error()))
 		return
 	}
-	text := strings.TrimSpace(redactDoctorText(string(data)))
+	text := strings.TrimSpace(RedactText(string(data)))
 	if text == "" {
-		writeDoctorLine(b, "log_tail_empty=true")
+		WriteLine(b, "log_tail_empty=true")
 		return
 	}
-	writeDoctorLine(b, text)
+	WriteLine(b, text)
 }
 
 func readDoctorTail(path string, limit int64) ([]byte, error) {
 	if limit <= 0 {
-		limit = doctorLogTailBytes
+		limit = LogTailBytes
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -546,21 +554,21 @@ func uniqueDoctorPaths(paths []string) []string {
 	return out
 }
 
-func writeDoctorSection(b *strings.Builder, title string) {
-	writeDoctorLine(b, "")
-	writeDoctorLine(b, "## "+strings.TrimSpace(title))
+func WriteSection(b *strings.Builder, title string) {
+	WriteLine(b, "")
+	WriteLine(b, "## "+strings.TrimSpace(title))
 }
 
-func writeDoctorKV(b *strings.Builder, key string, value string) {
+func WriteKV(b *strings.Builder, key string, value string) {
 	key = strings.TrimSpace(key)
 	value = strings.TrimSpace(value)
 	if key == "" {
 		return
 	}
-	writeDoctorLine(b, key+"="+strconv.Quote(value))
+	WriteLine(b, key+"="+strconv.Quote(value))
 }
 
-func writeDoctorLine(b *strings.Builder, line string) {
+func WriteLine(b *strings.Builder, line string) {
 	if b == nil {
 		return
 	}
@@ -577,7 +585,7 @@ var doctorSecretRedactions = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)((?:x-api-key|api-key)\s*[:=]\s*)[^\s,;"}]+`),
 }
 
-func redactDoctorText(text string) string {
+func RedactText(text string) string {
 	out := text
 	for _, re := range doctorSecretRedactions {
 		out = re.ReplaceAllString(out, `${1}<redacted>${2}`)

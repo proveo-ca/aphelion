@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package doctor
 
 import (
 	"strconv"
@@ -11,15 +11,15 @@ import (
 
 func (r *Runtime) writeDoctorTelegramThreads(b *strings.Builder, key session.SessionKey) {
 	if r == nil || r.store == nil || key.ChatID == 0 {
-		writeDoctorLine(b, "telegram_threads: unavailable")
+		WriteLine(b, "telegram_threads: unavailable")
 		return
 	}
 	threads, err := r.store.ListTelegramThreads(key.ChatID, 100)
 	if err != nil {
-		writeDoctorKV(b, "telegram_threads_error", err.Error())
+		WriteKV(b, "telegram_threads_error", err.Error())
 		return
 	}
-	writeDoctorKV(b, "telegram_threads_count", strconv.Itoa(len(threads)))
+	WriteKV(b, "telegram_threads_count", strconv.Itoa(len(threads)))
 	handoffByThread := map[int64]session.TelegramThreadPromotionHandoff{}
 	if handoffs, err := r.store.ListTelegramThreadPromotionHandoffs(key.ChatID, 100); err == nil {
 		for _, handoff := range handoffs {
@@ -28,9 +28,9 @@ func (r *Runtime) writeDoctorTelegramThreads(b *strings.Builder, key session.Ses
 			}
 		}
 	} else {
-		writeDoctorKV(b, "telegram_thread_promotion_handoffs_error", err.Error())
+		WriteKV(b, "telegram_thread_promotion_handoffs_error", err.Error())
 	}
-	writeDoctorKV(b, "telegram_thread_promotion_handoffs_count", strconv.Itoa(len(handoffByThread)))
+	WriteKV(b, "telegram_thread_promotion_handoffs_count", strconv.Itoa(len(handoffByThread)))
 	for _, thread := range threads {
 		parts := []string{
 			"visible=" + strconv.FormatInt(thread.DisplaySlot, 10),
@@ -42,7 +42,7 @@ func (r *Runtime) writeDoctorTelegramThreads(b *strings.Builder, key session.Ses
 			parts = append(parts, "created_message="+strconv.FormatInt(thread.CreatedMessageID, 10))
 		}
 		if !thread.LastActivityAt.IsZero() {
-			parts = append(parts, "last_activity="+thread.LastActivityAt.UTC().Format(doctorTimeFormat))
+			parts = append(parts, "last_activity="+thread.LastActivityAt.UTC().Format(TimeFormat))
 		}
 		if name := strings.TrimSpace(thread.ArchivedDisplayName); name != "" {
 			parts = append(parts, "archived_display_name="+strconv.Quote(name))
@@ -63,7 +63,7 @@ func (r *Runtime) writeDoctorTelegramThreads(b *strings.Builder, key session.Ses
 				parts = append(parts, "promotion_proposed_child="+strconv.Quote(strings.TrimSpace(child.AgentID)))
 			}
 		}
-		writeDoctorLine(b, "telegram_thread "+strings.Join(parts, " "))
+		WriteLine(b, "telegram_thread "+strings.Join(parts, " "))
 	}
 }
 

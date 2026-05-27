@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/core"
+	"github.com/idolum-ai/aphelion/runtime/doctor"
 	"github.com/idolum-ai/aphelion/session"
 )
 
@@ -116,7 +117,7 @@ func providerHealthPayloadString(payload map[string]any, key string) string {
 
 func (r *Runtime) writeDoctorProviderHealth(b *strings.Builder, now time.Time) {
 	if r == nil || r.store == nil {
-		writeDoctorLine(b, "provider_health: unavailable")
+		doctor.WriteLine(b, "provider_health: unavailable")
 		return
 	}
 	if now.IsZero() {
@@ -129,24 +130,24 @@ func (r *Runtime) writeDoctorProviderHealth(b *strings.Builder, now time.Time) {
 		core.ExecutionEventProviderAttemptSucceeded,
 	}, now.Add(-providerHealthWindow), 200)
 	if err != nil {
-		writeDoctorLine(b, "provider_health_error="+strconv.Quote(err.Error()))
+		doctor.WriteLine(b, "provider_health_error="+strconv.Quote(err.Error()))
 		return
 	}
 	health := providerHealthFromExecutionEvents(events, now)
-	writeDoctorKV(b, "provider_health_status", health.Status)
-	writeDoctorKV(b, "provider_health_window", health.Window.Truncate(time.Second).String())
-	writeDoctorKV(b, "provider_health_failures", strconv.Itoa(health.RecentFailures))
-	writeDoctorKV(b, "provider_health_retries", strconv.Itoa(health.RecentRetries))
-	writeDoctorKV(b, "provider_health_failovers", strconv.Itoa(health.RecentFailovers))
-	writeDoctorKV(b, "provider_health_successes", strconv.Itoa(health.RecentSuccesses))
+	doctor.WriteKV(b, "provider_health_status", health.Status)
+	doctor.WriteKV(b, "provider_health_window", health.Window.Truncate(time.Second).String())
+	doctor.WriteKV(b, "provider_health_failures", strconv.Itoa(health.RecentFailures))
+	doctor.WriteKV(b, "provider_health_retries", strconv.Itoa(health.RecentRetries))
+	doctor.WriteKV(b, "provider_health_failovers", strconv.Itoa(health.RecentFailovers))
+	doctor.WriteKV(b, "provider_health_successes", strconv.Itoa(health.RecentSuccesses))
 	if !health.LastFailureAt.IsZero() {
-		writeDoctorKV(b, "provider_health_last_failure_at", health.LastFailureAt.UTC().Format(time.RFC3339))
-		writeDoctorKV(b, "provider_health_last_failure_provider", health.LastFailureProvider)
-		writeDoctorKV(b, "provider_health_last_failure_model", health.LastFailureModel)
-		writeDoctorKV(b, "provider_health_last_failure_reason", health.LastFailureReason)
-		writeDoctorKV(b, "provider_health_last_failure_error", health.LastFailureError)
+		doctor.WriteKV(b, "provider_health_last_failure_at", health.LastFailureAt.UTC().Format(time.RFC3339))
+		doctor.WriteKV(b, "provider_health_last_failure_provider", health.LastFailureProvider)
+		doctor.WriteKV(b, "provider_health_last_failure_model", health.LastFailureModel)
+		doctor.WriteKV(b, "provider_health_last_failure_reason", health.LastFailureReason)
+		doctor.WriteKV(b, "provider_health_last_failure_error", health.LastFailureError)
 	}
 	if !health.LastSuccessAt.IsZero() {
-		writeDoctorKV(b, "provider_health_last_success_at", health.LastSuccessAt.UTC().Format(time.RFC3339))
+		doctor.WriteKV(b, "provider_health_last_success_at", health.LastSuccessAt.UTC().Format(time.RFC3339))
 	}
 }

@@ -1,6 +1,6 @@
 //go:build linux
 
-package runtime
+package mission
 
 import (
 	"log"
@@ -11,7 +11,7 @@ import (
 	"github.com/idolum-ai/aphelion/session"
 )
 
-func (r *Runtime) recordWorkingObjectiveForInbound(key session.SessionKey, msg core.InboundMessage) {
+func (r *Runtime) RecordWorkingObjectiveForInbound(key session.SessionKey, msg core.InboundMessage) {
 	if r == nil || r.store == nil {
 		return
 	}
