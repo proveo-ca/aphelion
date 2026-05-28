@@ -5,6 +5,7 @@ package doctor
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/idolum-ai/aphelion/session"
 )
@@ -44,6 +45,12 @@ func (r *Runtime) writeDoctorTelegramThreads(b *strings.Builder, key session.Ses
 		if !thread.LastActivityAt.IsZero() {
 			parts = append(parts, "last_activity="+thread.LastActivityAt.UTC().Format(TimeFormat))
 		}
+		eligibility := thread.ReminderEligibility(time.Now().UTC(), session.DefaultTelegramThreadReminderPolicy())
+		parts = append(parts,
+			"reminder_eligible="+strconv.FormatBool(eligibility.Eligible),
+			"reminder_reason="+strings.TrimSpace(eligibility.Reason),
+			"reminder_summary="+strings.TrimSpace(eligibility.SummaryKind),
+		)
 		if name := strings.TrimSpace(thread.ArchivedDisplayName); name != "" {
 			parts = append(parts, "archived_display_name="+strconv.Quote(name))
 		}

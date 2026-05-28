@@ -153,9 +153,20 @@ func mergeRouterStatusSnapshots(a core.RouterStatusSnapshot, b core.RouterStatus
 	}
 	for chatID, ids := range b.ActiveTurnsByChat {
 		a.ActiveTurnsByChat[chatID] = append(a.ActiveTurnsByChat[chatID], ids...)
+		a.TotalActiveTurns += len(ids)
 	}
 	for chatID, depth := range b.QueueDepthByChat {
 		a.QueueDepthByChat[chatID] += depth
+		a.TotalQueuedMessages += depth
+		if mergedDepth := a.QueueDepthByChat[chatID]; mergedDepth > a.MaxQueueDepth {
+			a.MaxQueueDepth = mergedDepth
+			a.MaxQueueDepthChatID = chatID
+		}
+	}
+	if !b.OldestQueuedAt.IsZero() && (a.OldestQueuedAt.IsZero() || b.OldestQueuedAt.Before(a.OldestQueuedAt)) {
+		a.OldestQueuedAt = b.OldestQueuedAt
+		a.OldestQueuedAge = b.OldestQueuedAge
+		a.OldestQueuedChatID = b.OldestQueuedChatID
 	}
 	return a
 }
