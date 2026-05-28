@@ -32,6 +32,7 @@ func (r *Runtime) SystemStatusSnapshot(router core.RouterStatusSnapshot) (core.S
 	if r == nil || r.store == nil {
 		snapshot.ActiveTurnsByChat = cloneActiveTurnMap(router.ActiveTurnsByChat)
 		snapshot.QueueDepthByChat = cloneQueueDepthMap(router.QueueDepthByChat)
+		applyRouterHealthSnapshot(&snapshot, router)
 		for _, ids := range snapshot.ActiveTurnsByChat {
 			snapshot.ActiveTurnCount += len(ids)
 		}
@@ -126,6 +127,7 @@ func (r *Runtime) SystemStatusSnapshot(router core.RouterStatusSnapshot) (core.S
 		}
 		snapshot.QueueDepthByChat[chatID] = depth
 	}
+	applyRouterHealthSnapshot(&snapshot, router)
 	for _, ids := range snapshot.ActiveTurnsByChat {
 		snapshot.ActiveTurnCount += len(ids)
 	}
@@ -390,4 +392,27 @@ func (r *Runtime) SystemStatusSnapshot(router core.RouterStatusSnapshot) (core.S
 		snapshot.Tailnet = &tailnetSnapshot
 	}
 	return snapshot, nil
+}
+
+func applyRouterHealthSnapshot(snapshot *core.SystemStatusSnapshot, router core.RouterStatusSnapshot) {
+	if snapshot == nil {
+		return
+	}
+	snapshot.TotalQueuedMessages = 0
+	snapshot.MaxQueueDepth = 0
+	snapshot.MaxQueueDepthChatID = 0
+	for chatID, depth := range snapshot.QueueDepthByChat {
+		if depth <= 0 {
+			continue
+		}
+		snapshot.TotalQueuedMessages += depth
+		if depth > snapshot.MaxQueueDepth {
+			snapshot.MaxQueueDepth = depth
+			snapshot.MaxQueueDepthChatID = chatID
+		}
+	}
+	if !router.OldestQueuedAt.IsZero() {
+		snapshot.OldestQueuedAge = statusAge(snapshot.GeneratedAt, router.OldestQueuedAt, router.OldestQueuedAt)
+		snapshot.OldestQueuedChatID = router.OldestQueuedChatID
+	}
 }

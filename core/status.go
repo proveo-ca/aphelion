@@ -366,6 +366,11 @@ type SystemStatusSnapshot struct {
 	ActiveChatIDs          []int64
 	ActiveTurnsByChat      map[int64][]uint64
 	QueueDepthByChat       map[int64]int
+	TotalQueuedMessages    int
+	MaxQueueDepth          int
+	MaxQueueDepthChatID    int64
+	OldestQueuedAge        time.Duration
+	OldestQueuedChatID     int64
 	PendingItems           []PendingItem
 	Continuations          []ContinuationStatusSnapshot
 	LatestTurnRunsByChat   map[int64]TurnRunStatusSnapshot
@@ -541,6 +546,13 @@ type DurableAgentsStatusSnapshot struct {
 }
 
 type RouterStatusSnapshot struct {
-	ActiveTurnsByChat map[int64][]uint64
-	QueueDepthByChat  map[int64]int
+	ActiveTurnsByChat   map[int64][]uint64
+	QueueDepthByChat    map[int64]int
+	TotalActiveTurns    int
+	TotalQueuedMessages int
+	MaxQueueDepth       int
+	MaxQueueDepthChatID int64
+	OldestQueuedAt      time.Time
+	OldestQueuedAge     time.Duration
+	OldestQueuedChatID  int64
 }

@@ -170,6 +170,7 @@ func (r *Router) Snapshot() core.RouterStatusSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	observedAt := time.Now().UTC()
 	snapshot := core.RouterStatusSnapshot{
 		ActiveTurnsByChat: make(map[int64][]uint64, len(r.active)),
 		QueueDepthByChat:  make(map[int64]int, len(r.queues)),
@@ -180,6 +181,7 @@ func (r *Router) Snapshot() core.RouterStatusSnapshot {
 		}
 		for _, chatID := range r.chatsForSessionLocked(sessionID) {
 			snapshot.ActiveTurnsByChat[chatID] = append(snapshot.ActiveTurnsByChat[chatID], active.id)
+			snapshot.TotalActiveTurns++
 		}
 	}
 	for sessionID, queue := range r.queues {
@@ -188,9 +190,34 @@ func (r *Router) Snapshot() core.RouterStatusSnapshot {
 		}
 		for _, chatID := range r.chatsForSessionLocked(sessionID) {
 			snapshot.QueueDepthByChat[chatID] += len(queue)
+			snapshot.TotalQueuedMessages += len(queue)
+			if depth := snapshot.QueueDepthByChat[chatID]; depth > snapshot.MaxQueueDepth {
+				snapshot.MaxQueueDepth = depth
+				snapshot.MaxQueueDepthChatID = chatID
+			}
+		}
+		for _, msg := range queue {
+			if msg.IngressQueuedAt.IsZero() {
+				continue
+			}
+			queuedAt := msg.IngressQueuedAt.UTC()
+			if snapshot.OldestQueuedAt.IsZero() || queuedAt.Before(snapshot.OldestQueuedAt) {
+				snapshot.OldestQueuedAt = queuedAt
+				snapshot.OldestQueuedAge = nonNegativeDuration(observedAt.Sub(queuedAt))
+				snapshot.OldestQueuedChatID = firstSnapshotChatID(r.chatsForSessionLocked(sessionID), msg.ChatID)
+			}
 		}
 	}
 	return snapshot
+}
+
+func firstSnapshotChatID(chatIDs []int64, fallback int64) int64 {
+	for _, chatID := range chatIDs {
+		if chatID != 0 {
+			return chatID
+		}
+	}
+	return fallback
 }
 
 func (r *Router) StopForMessage(msg core.InboundMessage) core.StopResult {

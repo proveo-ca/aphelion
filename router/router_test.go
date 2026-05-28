@@ -631,3 +631,43 @@ func TestRouterIngressSequenceAndEvents(t *testing.T) {
 	}
 	t.Fatal("missing compacted ingress selected event")
 }
+
+func TestRouterSnapshotIncludesPassiveQueueHealth(t *testing.T) {
+	t.Parallel()
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	done := make(chan struct{})
+	router := NewRouter(func(_ context.Context, _ *core.SessionState, _ core.InboundMessage) (*core.TurnResult, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return &core.TurnResult{}, nil
+	})
+
+	go func() {
+		defer close(done)
+		router.Route(context.Background(), core.InboundMessage{ChatID: 88, Text: "first"})
+	}()
+	<-started
+
+	oldest := time.Now().UTC().Add(-2 * time.Minute)
+	router.Route(context.Background(), core.InboundMessage{ChatID: 88, Text: "second", IngressQueuedAt: oldest})
+	router.Route(context.Background(), core.InboundMessage{ChatID: 88, Text: "third", IngressQueuedAt: oldest.Add(time.Minute)})
+
+	snapshot := router.Snapshot()
+	if snapshot.TotalActiveTurns != 1 {
+		t.Fatalf("TotalActiveTurns = %d, want 1", snapshot.TotalActiveTurns)
+	}
+	if snapshot.TotalQueuedMessages != 2 || snapshot.MaxQueueDepth != 2 || snapshot.MaxQueueDepthChatID != 88 {
+		t.Fatalf("queue health = total %d max %d chat %d, want total 2 max 2 chat 88", snapshot.TotalQueuedMessages, snapshot.MaxQueueDepth, snapshot.MaxQueueDepthChatID)
+	}
+	if snapshot.OldestQueuedChatID != 88 || snapshot.OldestQueuedAge <= 0 || !snapshot.OldestQueuedAt.Equal(oldest) {
+		t.Fatalf("oldest queue = chat %d age %s at %s, want chat 88 positive age at %s", snapshot.OldestQueuedChatID, snapshot.OldestQueuedAge, snapshot.OldestQueuedAt, oldest)
+	}
+
+	close(release)
+	<-done
+}
