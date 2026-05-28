@@ -5,6 +5,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -143,7 +144,9 @@ func (r *Registry) remoteHost(ctx context.Context, input json.RawMessage, p prin
 		return remoteHostBlocker(grantID, in.Action, in.Host, in.User, err.Error()), err
 	}
 	if err := validateRemoteHostInputAgainstContract(access.Grant, access.Scopes, &in); err != nil {
-		_ = r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "blocked", err.Error())
+		if recordErr := r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "blocked", err.Error()); recordErr != nil {
+			return remoteHostBlocker(access.Grant.GrantID, in.Action, in.Host, in.User, err.Error()), errors.Join(err, recordErr)
+		}
 		return remoteHostBlocker(access.Grant.GrantID, in.Action, in.Host, in.User, err.Error()), err
 	}
 	if err := r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "allowed", ""); err != nil {
@@ -152,7 +155,9 @@ func (r *Registry) remoteHost(ctx context.Context, input json.RawMessage, p prin
 
 	request, err := remoteHostOpenSSHRequest(in)
 	if err != nil {
-		_ = r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "blocked", err.Error())
+		if recordErr := r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "blocked", err.Error()); recordErr != nil {
+			return remoteHostBlocker(access.Grant.GrantID, in.Action, in.Host, in.User, err.Error()), errors.Join(err, recordErr)
+		}
 		return remoteHostBlocker(access.Grant.GrantID, in.Action, in.Host, in.User, err.Error()), err
 	}
 	runner := r.remoteHostRunner
@@ -168,7 +173,7 @@ func (r *Registry) remoteHost(ctx context.Context, input json.RawMessage, p prin
 	result.Output = strings.TrimSpace(result.Output)
 	if runErr != nil {
 		reason := remoteHostRunError(result, runErr)
-		_ = r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "failed", reason)
+		recordErr := r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "failed", reason)
 		return remoteHostRenderResult(remoteHostResult{
 			Status:   "failed",
 			GrantID:  access.Grant.GrantID,
@@ -180,9 +185,11 @@ func (r *Registry) remoteHost(ctx context.Context, input json.RawMessage, p prin
 			ExitCode: result.ExitCode,
 			Stdout:   truncate(result.Output, r.maxOutputBytes),
 			Blocker:  reason,
-		}), runErr
+		}), errors.Join(runErr, recordErr)
 	}
-	_ = r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "completed", "")
+	if err := r.recordRemoteHostInvocation(access.Grant, p, access.Ref, in.Action, "completed", ""); err != nil {
+		return remoteHostBlocker(access.Grant.GrantID, in.Action, in.Host, in.User, err.Error()), err
+	}
 	return remoteHostRenderResult(remoteHostResult{
 		Status:   "completed",
 		GrantID:  access.Grant.GrantID,
@@ -209,7 +216,9 @@ func (r *Registry) requireRemoteHostAccess(p principal.Principal, key session.Se
 		if ok {
 			access.Grant = grant
 			access.Ref = remoteHostAuthorityUseRef(key)
-			_ = r.recordRemoteHostInvocation(grant, p, access.Ref, firstNonEmpty(in.Action, "invoke"), "blocked", "remote_host action must be one of check, ssh_exec, or codex_exec")
+			if recordErr := r.recordRemoteHostInvocation(grant, p, access.Ref, firstNonEmpty(in.Action, "invoke"), "blocked", "remote_host action must be one of check, ssh_exec, or codex_exec"); recordErr != nil {
+				return access, errors.Join(fmt.Errorf("remote_host action must be one of check, ssh_exec, or codex_exec"), recordErr)
+			}
 		}
 		return access, fmt.Errorf("remote_host action must be one of check, ssh_exec, or codex_exec")
 	}
@@ -228,7 +237,10 @@ func (r *Registry) requireRemoteHostAccess(p principal.Principal, key session.Se
 			return access, evidenceErr
 		} else if evidenceOK {
 			ref := remoteHostAuthorityUseRef(key)
-			_ = r.recordRemoteHostInvocation(evidence, p, ref, in.Action, "blocked", fmt.Sprintf("remote_host action %q is not granted to principal %q for tailnet_host:%s", in.Action, toolAuthorityPrincipalDisplay(p), in.Host))
+			reason := fmt.Sprintf("remote_host action %q is not granted to principal %q for tailnet_host:%s", in.Action, toolAuthorityPrincipalDisplay(p), in.Host)
+			if recordErr := r.recordRemoteHostInvocation(evidence, p, ref, in.Action, "blocked", reason); recordErr != nil {
+				return access, errors.Join(fmt.Errorf("%s", reason), recordErr)
+			}
 		}
 		return access, fmt.Errorf("remote_host action %q is not granted to principal %q for tailnet_host:%s", in.Action, toolAuthorityPrincipalDisplay(p), in.Host)
 	}
@@ -236,17 +248,23 @@ func (r *Registry) requireRemoteHostAccess(p principal.Principal, key session.Se
 	access.Ref = remoteHostAuthorityUseRef(key)
 	scopes, hasScope, err := remoteHostContractScopesFromGrant(grant)
 	if err != nil {
-		_ = r.recordRemoteHostInvocation(grant, p, access.Ref, in.Action, "blocked", err.Error())
+		if recordErr := r.recordRemoteHostInvocation(grant, p, access.Ref, in.Action, "blocked", err.Error()); recordErr != nil {
+			return access, errors.Join(err, recordErr)
+		}
 		return access, err
 	}
 	if !hasScope || len(scopes) == 0 {
 		err := fmt.Errorf("remote_host grant %s must include a remote_host contract block", grant.GrantID)
-		_ = r.recordRemoteHostInvocation(grant, p, access.Ref, in.Action, "blocked", err.Error())
+		if recordErr := r.recordRemoteHostInvocation(grant, p, access.Ref, in.Action, "blocked", err.Error()); recordErr != nil {
+			return access, errors.Join(err, recordErr)
+		}
 		return access, err
 	}
 	access.Scopes = scopes
 	if err := validateCapabilityToolInvocationInput(grant, raw); err != nil {
-		_ = r.recordRemoteHostInvocation(grant, p, access.Ref, in.Action, "blocked", err.Error())
+		if recordErr := r.recordRemoteHostInvocation(grant, p, access.Ref, in.Action, "blocked", err.Error()); recordErr != nil {
+			return access, errors.Join(err, recordErr)
+		}
 		return access, err
 	}
 	return access, nil
