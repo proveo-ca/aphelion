@@ -90,8 +90,10 @@ func TestRenderThreadDetailUsesCreatedAtFallbackAndRelativeTime(t *testing.T) {
 	created := time.Date(2026, 5, 21, 23, 8, 0, 0, time.UTC)
 	now := time.Date(2026, 5, 23, 23, 8, 0, 0, time.UTC)
 	rendered := renderTelegramThreadDetailAt(session.TelegramThread{ThreadID: 7, DisplaySlot: 3, Status: session.TelegramThreadStatusOpen, CreatedText: "older lane", CreatedAt: created}, now)
-	if !strings.Contains(rendered, "Last active: May 21, 2026, 11:08 PM UTC") || !strings.Contains(rendered, "2 days ago") {
-		t.Fatalf("rendered detail = %q, want created-at fallback with relative time", rendered)
+	for _, want := range []string{"Last active: May 21, 2026, 11:08 PM UTC", "2 days ago", "Reminder eligibility:", "eligible=true", "reason=stale_open_thread"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered detail = %q, want %q", rendered, want)
+		}
 	}
 }
 

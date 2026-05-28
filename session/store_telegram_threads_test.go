@@ -477,3 +477,44 @@ func TestRecordTelegramThreadAbsorbDropsPendingThreadIngress(t *testing.T) {
 		t.Fatalf("absorbed-thread update = %#v, want dropped", record)
 	}
 }
+
+func TestTelegramThreadReminderEligibilityIsPassiveAccounting(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	thread := TelegramThread{
+		ChatID:         1001,
+		ThreadID:       7,
+		DisplaySlot:    3,
+		Status:         TelegramThreadStatusOpen,
+		CreatedText:    "call with the therapist",
+		LastActivityAt: now.Add(-25 * time.Hour),
+		CreatedAt:      now.Add(-48 * time.Hour),
+	}
+
+	eligibility := thread.ReminderEligibility(now, DefaultTelegramThreadReminderPolicy())
+	if !eligibility.Eligible || eligibility.Reason != "stale_open_thread" {
+		t.Fatalf("eligibility = %+v, want stale open thread", eligibility)
+	}
+	if eligibility.SummaryKind != "privacy_softened" {
+		t.Fatalf("SummaryKind = %q, want privacy_softened", eligibility.SummaryKind)
+	}
+	if eligibility.Age != 25*time.Hour || eligibility.StaleAfter != 24*time.Hour {
+		t.Fatalf("age/threshold = %s/%s, want 25h/24h", eligibility.Age, eligibility.StaleAfter)
+	}
+
+	fresh := thread
+	fresh.CreatedText = "router observability PR"
+	fresh.LastActivityAt = now.Add(-2 * time.Hour)
+	eligibility = fresh.ReminderEligibility(now, DefaultTelegramThreadReminderPolicy())
+	if eligibility.Eligible || eligibility.Reason != "fresh" || eligibility.SummaryKind != "specific" {
+		t.Fatalf("fresh eligibility = %+v, want ineligible fresh specific", eligibility)
+	}
+
+	closed := thread
+	closed.Status = TelegramThreadStatusClosed
+	eligibility = closed.ReminderEligibility(now, DefaultTelegramThreadReminderPolicy())
+	if eligibility.Eligible || eligibility.Reason != "thread_not_open" {
+		t.Fatalf("closed eligibility = %+v, want thread_not_open", eligibility)
+	}
+}
