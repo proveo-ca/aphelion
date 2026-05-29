@@ -380,3 +380,55 @@ func telegramThreadPromotionChatIDForTest(t *testing.T, handoffID string) int64 
 	}
 	return chatID
 }
+
+func TestRenderTelegramThreadReminderSoftensPrivateTopicAndBindsReply(t *testing.T) {
+	t.Parallel()
+	sender := &stubCommandSender{}
+	thread := session.TelegramThread{ChatID: 1001, ThreadID: 42, DisplaySlot: 4, Status: session.TelegramThreadStatusOpen, CreatedText: "call with the therapist", LastActivityAt: time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)}
+	router := &stubCommandRouter{}
+	messageID, err := sendTelegramThreadReminder(context.Background(), sender, router, 1001, 2002, thread)
+	if err != nil {
+		t.Fatalf("sendTelegramThreadReminder() err = %v", err)
+	}
+	if messageID != 1 || len(sender.inline) != 1 {
+		t.Fatalf("messageID=%d inline=%d, want one reminder", messageID, len(sender.inline))
+	}
+	if strings.Contains(sender.inline[0].text, "therapist") || !strings.Contains(sender.inline[0].text, "a personal conversation") || !strings.Contains(sender.inline[0].text, "Reply to this message to continue") {
+		t.Fatalf("reminder text = %q, want privacy-softened natural reminder", sender.inline[0].text)
+	}
+	if !commandRowsContain(sender.inline[0].rows, "ignore", "thread_rem_ignore:42") || !commandRowsContain(sender.inline[0].rows, "absorb", "thread_rem_absorb:42") {
+		t.Fatalf("rows = %#v, want ignore/absorb reminder buttons", sender.inline[0].rows)
+	}
+	if router.threadReminderChatID != 1001 || router.threadReminderID != 42 || router.threadReminderMessageID != 1 || router.threadReminderSummaryKind != "privacy_softened" || router.threadReminderSenderID != 2002 {
+		t.Fatalf("reminder ledger chat=%d thread=%d msg=%d summaryKind=%q sender=%d", router.threadReminderChatID, router.threadReminderID, router.threadReminderMessageID, router.threadReminderSummaryKind, router.threadReminderSenderID)
+	}
+}
+
+func TestThreadReminderCallbacksIgnoreAndAbsorbWithoutDeletingThread(t *testing.T) {
+	t.Parallel()
+	sender := &stubCommandSender{}
+	router := &stubCommandRouter{ignoreReminderReturn: "Ignored reminder for thread 4."}
+	handled, err := handleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{ID: "ignore-cb", Data: "thread_rem_ignore:42", From: &telegram.User{ID: 2002}, Message: &telegram.Message{MessageID: 9901, Chat: &telegram.Chat{ID: 1001}}})
+	if err != nil || !handled {
+		t.Fatalf("ignore callback handled=%t err=%v", handled, err)
+	}
+	if router.ignoreReminderChatID != 1001 || router.ignoreReminderSenderID != 2002 || router.ignoreReminderThreadID != 42 || router.ignoreReminderMessageID != 9901 {
+		t.Fatalf("ignore reminder call chat=%d sender=%d thread=%d msg=%d", router.ignoreReminderChatID, router.ignoreReminderSenderID, router.ignoreReminderThreadID, router.ignoreReminderMessageID)
+	}
+	if len(sender.editClear) != 1 || !strings.Contains(sender.editClear[0].text, "Ignored reminder") {
+		t.Fatalf("ignore edits = %#v, want edited reminder without thread deletion", sender.editClear)
+	}
+
+	sender = &stubCommandSender{}
+	router = &stubCommandRouter{absorbReminderReturn: "Absorbed thread 4."}
+	handled, err = handleTelegramCommandCallback(context.Background(), sender, router, telegram.CallbackQuery{ID: "absorb-cb", Data: "thread_rem_absorb:42", From: &telegram.User{ID: 2002}, Message: &telegram.Message{MessageID: 9902, Chat: &telegram.Chat{ID: 1001}}})
+	if err != nil || !handled {
+		t.Fatalf("absorb callback handled=%t err=%v", handled, err)
+	}
+	if router.absorbReminderChatID != 1001 || router.absorbReminderSenderID != 2002 || router.absorbReminderThreadID != 42 || router.absorbReminderMessageID != 9902 {
+		t.Fatalf("absorb reminder call chat=%d sender=%d thread=%d msg=%d", router.absorbReminderChatID, router.absorbReminderSenderID, router.absorbReminderThreadID, router.absorbReminderMessageID)
+	}
+	if len(sender.editClear) != 1 || !strings.Contains(sender.editClear[0].text, "Absorbed thread") {
+		t.Fatalf("absorb edits = %#v, want absorbed reminder edit", sender.editClear)
+	}
+}
