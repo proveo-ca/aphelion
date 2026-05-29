@@ -9,6 +9,9 @@ This document is the product-contract inventory for bringing the package to
 from implementation details: higher layers still decide policy, authority,
 operator review, deployment, and memory promotion.
 
+For a newcomer-facing orientation to the package's telos, surfaces, and
+archetype boundary, see [`durableagent/README.md`](../../durableagent/README.md).
+
 ## Product boundary
 
 `durableagent/` owns:
