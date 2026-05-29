@@ -810,3 +810,37 @@ func normalizeTelegramThreadStatus(status TelegramThreadStatus) TelegramThreadSt
 		return ""
 	}
 }
+
+func (s *SQLiteStore) ListTelegramThreadChatIDs(limit int) ([]int64, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`
+		SELECT DISTINCT chat_id
+		FROM telegram_threads
+		WHERE status = ?
+		ORDER BY chat_id
+		LIMIT ?
+	`, string(TelegramThreadStatusOpen), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list telegram thread chat ids: %w", err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var chatID int64
+		if err := rows.Scan(&chatID); err != nil {
+			return nil, err
+		}
+		if chatID != 0 {
+			out = append(out, chatID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
