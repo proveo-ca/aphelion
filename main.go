@@ -326,6 +326,7 @@ func run() error {
 	rt.StartDurableWakeLoop(ctx, log.Printf)
 	rt.StartCronLoop(ctx, log.Printf)
 	rt.StartNocturneLoop(ctx, log.Printf)
+	startTelegramThreadReminderSweepLoop(ctx, tgOutbound, commandControl, store)
 
 	telegramHandler := func(parent context.Context, msg core.InboundMessage) error {
 		msg = telegramruntime.RewriteDurableWizardIntent(msg, commandControl)
