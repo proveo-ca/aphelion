@@ -201,6 +201,13 @@ func (c ThreadController) TelegramThreads(chatID int64) ([]session.TelegramThrea
 	return c.Store.ListTelegramThreads(chatID, 20)
 }
 
+func (c ThreadController) TelegramThreadReminders(chatID int64, status session.TelegramThreadReminderStatus, limit int) ([]session.TelegramThreadReminder, error) {
+	if c.Store == nil {
+		return nil, fmt.Errorf("thread store is unavailable")
+	}
+	return c.Store.ListTelegramThreadReminders(chatID, status, limit)
+}
+
 func (c ThreadController) QueueTelegramThreadSummary(ctx context.Context, msg core.InboundMessage) (string, error) {
 	if c.Store == nil {
 		return "", fmt.Errorf("thread store is unavailable")

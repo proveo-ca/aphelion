@@ -39,6 +39,7 @@ type commandThreadRouter interface {
 	TelegramThread(chatID int64, threadID int64) (session.TelegramThread, bool, error)
 	TelegramThreadForReplyMessage(chatID int64, replyMessageID int64) (session.TelegramThread, bool, error)
 	TelegramThreads(chatID int64) ([]session.TelegramThread, error)
+	TelegramThreadReminders(chatID int64, status session.TelegramThreadReminderStatus, limit int) ([]session.TelegramThreadReminder, error)
 	QueueTelegramThreadSummary(ctx context.Context, msg core.InboundMessage) (string, error)
 	PromoteTelegramThread(ctx context.Context, chatID int64, senderID int64, threadID int64) (session.TelegramThreadPromotionResult, error)
 	PrepareTelegramThreadPromotion(ctx context.Context, chatID int64, senderID int64, handoffID string) (session.TelegramThreadPromotionResult, error)
@@ -77,7 +78,11 @@ func handleTelegramThreadCommand(ctx context.Context, sender commandSender, rout
 		}
 		return false, nil
 	case "threads":
-		view := telegramThreadsViewFromArgs(telegramCommandArgs(msg.Text))
+		args := telegramCommandArgs(msg.Text)
+		if action, _ := nextCommandToken(args); strings.EqualFold(action, "remind") || strings.EqualFold(action, "reminders") {
+			return sendTelegramThreadReminders(ctx, sender, threadRouter, msg)
+		}
+		view := telegramThreadsViewFromArgs(args)
 		threads, err := threadRouter.TelegramThreads(msg.ChatID)
 		if err != nil {
 			return true, err

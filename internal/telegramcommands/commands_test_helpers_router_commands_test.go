@@ -199,6 +199,16 @@ func (s *stubCommandRouter) TelegramThreads(chatID int64) ([]session.TelegramThr
 	return append([]session.TelegramThread(nil), s.threadsReturn...), nil
 }
 
+func (s *stubCommandRouter) TelegramThreadReminders(chatID int64, status session.TelegramThreadReminderStatus, limit int) ([]session.TelegramThreadReminder, error) {
+	s.threadRemindersChatID = chatID
+	s.threadRemindersStatus = status
+	s.threadRemindersLimit = limit
+	if s.threadRemindersErr != nil {
+		return nil, s.threadRemindersErr
+	}
+	return append([]session.TelegramThreadReminder(nil), s.threadRemindersReturn...), nil
+}
+
 func (s *stubCommandRouter) QueueTelegramThreadSummary(_ context.Context, msg core.InboundMessage) (string, error) {
 	copied := msg
 	s.threadSummaryMsg = &copied

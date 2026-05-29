@@ -432,3 +432,46 @@ func TestThreadReminderCallbacksIgnoreAndAbsorbWithoutDeletingThread(t *testing.
 		t.Fatalf("absorb edits = %#v, want absorbed reminder edit", sender.editClear)
 	}
 }
+
+func TestThreadsRemindCommandSelectsStaleThreadsAndSuppressesPending(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	sender := &stubCommandSender{}
+	router := &stubCommandRouter{
+		threadsReturn: []session.TelegramThread{
+			{ChatID: 1001, ThreadID: 41, DisplaySlot: 1, Status: session.TelegramThreadStatusOpen, CreatedText: "fresh thread", LastActivityAt: now.Add(-time.Hour)},
+			{ChatID: 1001, ThreadID: 42, DisplaySlot: 2, Status: session.TelegramThreadStatusOpen, CreatedText: "call with the therapist", LastActivityAt: now.Add(-25 * time.Hour)},
+			{ChatID: 1001, ThreadID: 43, DisplaySlot: 3, Status: session.TelegramThreadStatusOpen, CreatedText: "already reminded", LastActivityAt: now.Add(-26 * time.Hour)},
+		},
+		threadRemindersReturn: []session.TelegramThreadReminder{{ID: 1, ChatID: 1001, ThreadID: 43, MessageID: 9903, Status: session.TelegramThreadReminderStatusPending, SourceLastActivityAt: now.Add(-26 * time.Hour), UpdatedAt: now.Add(-time.Hour)}},
+	}
+	handled, err := handleTelegramThreadCommand(context.Background(), sender, router, core.InboundMessage{ChatID: 1001, SenderID: 2002, MessageID: 3003, Text: "/threads remind"}, "threads")
+	if err != nil || !handled {
+		t.Fatalf("handleTelegramThreadCommand(/threads remind) handled=%t err=%v", handled, err)
+	}
+	if len(sender.inline) != 1 || len(sender.msgs) != 1 {
+		t.Fatalf("inline=%d msgs=%d, want one reminder and one summary", len(sender.inline), len(sender.msgs))
+	}
+	if router.threadReminderID != 42 || router.threadReminderChatID != 1001 || router.threadReminderSenderID != 2002 {
+		t.Fatalf("recorded reminder chat=%d thread=%d sender=%d, want stale unsuppressed thread 42", router.threadReminderChatID, router.threadReminderID, router.threadReminderSenderID)
+	}
+	if !strings.Contains(sender.msgs[0].Text, "Sent 1 stale-thread reminder") {
+		t.Fatalf("summary = %q, want sent count", sender.msgs[0].Text)
+	}
+	if strings.Contains(sender.inline[0].text, "therapist") || !strings.Contains(sender.inline[0].text, "a personal conversation") {
+		t.Fatalf("reminder text = %q, want privacy-softened emitted reminder", sender.inline[0].text)
+	}
+}
+
+func TestThreadsRemindCommandReportsNoEligibleCandidates(t *testing.T) {
+	t.Parallel()
+	sender := &stubCommandSender{}
+	router := &stubCommandRouter{threadsReturn: []session.TelegramThread{{ChatID: 1001, ThreadID: 41, DisplaySlot: 1, Status: session.TelegramThreadStatusOpen, CreatedText: "fresh thread", LastActivityAt: time.Now().UTC()}}}
+	handled, err := handleTelegramThreadCommand(context.Background(), sender, router, core.InboundMessage{ChatID: 1001, SenderID: 2002, MessageID: 3003, Text: "/threads remind"}, "threads")
+	if err != nil || !handled {
+		t.Fatalf("handleTelegramThreadCommand(/threads remind) handled=%t err=%v", handled, err)
+	}
+	if len(sender.inline) != 0 || len(sender.msgs) != 1 || !strings.Contains(sender.msgs[0].Text, "No stale side threads") {
+		t.Fatalf("inline=%d msgs=%#v, want no-candidates text", len(sender.inline), sender.msgs)
+	}
+}

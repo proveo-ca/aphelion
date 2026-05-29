@@ -78,6 +78,10 @@ func (c telegramCommandControl) TelegramThreads(chatID int64) ([]session.Telegra
 	return c.threadController().TelegramThreads(chatID)
 }
 
+func (c telegramCommandControl) TelegramThreadReminders(chatID int64, status session.TelegramThreadReminderStatus, limit int) ([]session.TelegramThreadReminder, error) {
+	return c.threadController().TelegramThreadReminders(chatID, status, limit)
+}
+
 func (c telegramCommandControl) QueueTelegramThreadSummary(ctx context.Context, msg core.InboundMessage) (string, error) {
 	return c.threadController().QueueTelegramThreadSummary(ctx, msg)
 }

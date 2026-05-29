@@ -280,6 +280,11 @@ type stubCommandRouter struct {
 	threadReplyReturn            session.TelegramThread
 	threadReplyOK                bool
 	threadReplyErr               error
+	threadRemindersReturn        []session.TelegramThreadReminder
+	threadRemindersErr           error
+	threadRemindersChatID        int64
+	threadRemindersStatus        session.TelegramThreadReminderStatus
+	threadRemindersLimit         int
 	threadsReturn                []session.TelegramThread
 	threadsErr                   error
 	threadsChatID                int64
