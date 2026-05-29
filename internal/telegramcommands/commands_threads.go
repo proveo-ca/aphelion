@@ -38,6 +38,7 @@ type commandThreadRouter interface {
 	TargetTelegramThreadMessage(ctx context.Context, msg core.InboundMessage, threadID int64, text string) (core.InboundMessage, session.TelegramThread, error)
 	TelegramThread(chatID int64, threadID int64) (session.TelegramThread, bool, error)
 	TelegramThreadForReplyMessage(chatID int64, replyMessageID int64) (session.TelegramThread, bool, error)
+	MarkTelegramThreadReminderResumed(chatID int64, replyMessageID int64) error
 	TelegramThreads(chatID int64) ([]session.TelegramThread, error)
 	TelegramThreadReminders(chatID int64, status session.TelegramThreadReminderStatus, limit int) ([]session.TelegramThreadReminder, error)
 	QueueTelegramThreadSummary(ctx context.Context, msg core.InboundMessage) (string, error)

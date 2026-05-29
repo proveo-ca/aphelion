@@ -70,6 +70,10 @@ func (c telegramCommandControl) TelegramThreadForReplyMessage(chatID int64, repl
 	return c.threadController().TelegramThreadForReplyMessage(chatID, replyMessageID)
 }
 
+func (c telegramCommandControl) MarkTelegramThreadReminderResumed(chatID int64, replyMessageID int64) error {
+	return c.threadController().MarkTelegramThreadReminderResumed(chatID, replyMessageID)
+}
+
 func (c telegramCommandControl) TelegramThread(chatID int64, threadID int64) (session.TelegramThread, bool, error) {
 	return c.threadController().TelegramThread(chatID, threadID)
 }

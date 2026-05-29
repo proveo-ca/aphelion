@@ -187,6 +187,14 @@ func (c ThreadController) TelegramThreadForReplyMessage(chatID int64, replyMessa
 	return c.Store.TelegramThread(chatID, threadID)
 }
 
+func (c ThreadController) MarkTelegramThreadReminderResumed(chatID int64, replyMessageID int64) error {
+	if c.Store == nil || chatID == 0 || replyMessageID <= 0 {
+		return nil
+	}
+	_, _, err := c.Store.MarkTelegramThreadReminderStatus(chatID, replyMessageID, session.TelegramThreadReminderStatusResumed, time.Now().UTC())
+	return err
+}
+
 func (c ThreadController) TelegramThread(chatID int64, threadID int64) (session.TelegramThread, bool, error) {
 	if c.Store == nil {
 		return session.TelegramThread{}, false, fmt.Errorf("thread store is unavailable")

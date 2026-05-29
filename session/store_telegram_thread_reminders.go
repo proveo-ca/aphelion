@@ -215,3 +215,25 @@ func scanTelegramThreadReminder(scanner interface{ Scan(dest ...any) error }) (T
 	}
 	return reminder, nil
 }
+
+func (s *SQLiteStore) ExpirePendingTelegramThreadReminders(chatID int64, before time.Time, at time.Time) (int, error) {
+	if chatID == 0 || before.IsZero() {
+		return 0, nil
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	res, err := s.db.Exec(`
+		UPDATE telegram_thread_reminders
+		SET status = ?, updated_at = ?
+		WHERE chat_id = ? AND status = ? AND created_at < ?
+	`, string(TelegramThreadReminderStatusExpired), at.UTC().Format(time.RFC3339Nano), chatID, string(TelegramThreadReminderStatusPending), before.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, fmt.Errorf("expire pending telegram thread reminders: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("expire pending telegram thread reminder rows affected: %w", err)
+	}
+	return int(affected), nil
+}

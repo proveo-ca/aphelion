@@ -172,6 +172,12 @@ func (s *stubCommandRouter) TelegramThread(chatID int64, threadID int64) (sessio
 	return session.TelegramThread{ChatID: chatID, ThreadID: threadID, Status: session.TelegramThreadStatusOpen}, true, nil
 }
 
+func (s *stubCommandRouter) MarkTelegramThreadReminderResumed(chatID int64, replyMessageID int64) error {
+	s.threadReminderChatID = chatID
+	s.threadReminderMessageID = replyMessageID
+	return nil
+}
+
 func (s *stubCommandRouter) TelegramThreadForReplyMessage(chatID int64, replyMessageID int64) (session.TelegramThread, bool, error) {
 	s.threadReplyChatID = chatID
 	s.threadReplyMessageID = replyMessageID
