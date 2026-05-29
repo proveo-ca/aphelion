@@ -35,6 +35,81 @@ That is the telos of this folder:
 > materialize tools outside core while keeping authority, lifecycle evidence,
 > sandbox constraints, and invocation grants inside governance.
 
+## Candidate outpost senses
+
+Aphelion can already improvise scripts during approved work. That means the
+case for an external tool is not raw possibility. The case is ready sense: a
+rehearsed, probed, bounded organ that a natural-language operator can rely on
+from the outpost.
+
+A script is a temporary prosthetic. A manifest-backed external tool is a
+candidate body part: named, owned, installable, auditable, probeable,
+drift-checkable, grant-gated, and explainable. These candidates are roadmap
+entries, not implemented or callable tools. Each would need its own manifest,
+lifecycle evidence, capability request, grant, and provider/network/credential
+review where applicable.
+
+Ranked by usefulness for the natural-language outpost:
+
+1. **`observe_public_page` — sight.** Look at a public web page and report what
+   is actually there: final URL, title, visible text summary, main content,
+   links, forms/buttons, optional screenshot artifact, retrieval time,
+   confidence, and failure reason. This is the direct successor to the bundled
+   `browse_page` pilot. It needs explicit network policy and must not imply
+   account/session/cookie use.
+2. **`outpost_body_scan` — proprioception.** Sense Aphelion's own body from the
+   operator's remote point of view: service state, recent journal errors,
+   provider availability, quota/config blockers, sandbox readiness, grants,
+   branch/deploy posture, and suggested next repair action. It should diagnose
+   and summarize, not mutate service state.
+3. **`repo_pr_status_digest` — repo hearing.** Listen to repository and PR
+   state: branch head, PR checks, review state, mergeability signals, changed
+   files, and next bounded action. It supports the inspect -> edit -> commit ->
+   PR golden path, but should not merge, approve, or push unless a separate
+   external-account grant permits that action.
+4. **`site_change_detector` / `rss_feed_digest` — ambient hearing.** Notice
+   public changes over time: docs releases, job pages, project feeds, vendor
+   status, or other watched public sources. Output should be signal records
+   with importance, why it matters, uncertainty, and recommended next action,
+   not a firehose.
+5. **`pdf_reading_sense` / `document_inspector` — document sight.** Inspect
+   PDFs and structured documents as world objects: metadata, page count, text
+   extraction, outline, tables/images if available, summary, citation anchors,
+   and extraction confidence. It should keep source artifacts local and expose
+   redaction/retention boundaries.
+6. **`image_ocr_and_caption` / `screenshot_inspector` — visual perception.**
+   Read screenshots, UI states, diagrams, and error images: OCR text, layout,
+   visible controls, likely issue, and uncertainty. It should produce an
+   evidence artifact rather than silently turning images into ungrounded prose.
+7. **`child_judgment_record_lint` — governance sense.** Inspect a durable
+   child's judgment record for category, confidence, action, why, uncertainty,
+   policy version, source refs, retention, escalation, and redaction summary.
+   It strengthens child-local operating membranes without teaching Aphelion core
+   domain semantics.
+8. **`memory_candidate_lint` / `mission_relevance_scan` — continuity sense.**
+   Detect whether a conversation artifact is a durable memory candidate, a
+   mission candidate, stale context, or something to ignore. It should propose
+   review records, not write memory or missions by itself.
+9. **`markdown_link_check` / `mermaid_validate` / `public_readiness_check` —
+   practiced hands.** Rehearsed maintenance gestures for docs and release
+   hygiene. These are less like new senses and more like reliable muscle memory:
+   narrow, local, low-risk, and easy to probe.
+10. **`elevenlabs_tts_artifact` — voice/expression.** Turn text into a local
+    audio artifact using configured ElevenLabs surfaces. It should generate an
+    artifact only, never send or publish it, and it requires explicit
+    spend/privacy/credential/network review because text leaves the outpost.
+11. **`codex_or_openai_image_generation` — imagination/artifact creation.**
+    Generate a local image artifact through an already-governed image lane.
+    This is powerful, but less foundational than sight, hearing, and
+    proprioception. It should return local artifacts and exact blockers, not
+    fall back across providers or APIs without a separate grant.
+
+The product test for any new external tool is:
+
+> Does this make the outpost's body more reliable for a natural-language
+> operator, while keeping materialization, health, authority, and invocation as
+> separate facts?
+
 ## Current pilot
 
 The bundled pilot is `browse_page`:
