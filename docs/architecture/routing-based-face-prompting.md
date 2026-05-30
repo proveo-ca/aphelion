@@ -49,9 +49,11 @@ A face render should be assembled in this order:
    that help the reply feel continuous.
 5. **Final voice pass** — wording, warmth, compression, and staging.
 
-The route decides the contract. Retrieved continuity can color the scene but
-cannot promote a blocked action into an allowed action, turn an offered approval
-into an approval, claim tool execution, or erase uncertainty.
+The route decides the contract. In code, `prompt.BuildFacePromptBlocks` emits a
+`Route / Scene Contract` block before the loaded face files. Retrieved continuity
+can color the scene but cannot promote a blocked action into an allowed action,
+turn an offered approval into an approval, claim tool execution, or erase
+uncertainty.
 
 ## Scene examples
 
@@ -67,10 +69,19 @@ into an approval, claim tool execution, or erase uncertainty.
   connect it to the user's goal, and offer a useful next scaffold instead of
   only warning about boundaries.
 
-This is why `face/` should grow as a set of situated contracts rather than a
-single large persona costume. The pieces are membranes: report, refusal,
-proposal, blocked state, recovery, voice, and drift checks each protect a
-different kind of turn while still serving the same two ends.
+This is why the prompt-root `face/` tree is a set of situated contracts rather
+than a single large persona costume:
+
+- `face/persona/*.md` names Idolum's telos, name-danger, anti-idolatry, and
+  voice;
+- `face/contracts/*.md` preserves the material floor, authority/fact boundaries,
+  semantic memory as texture, and usefulness-not-obedience;
+- `face/scenes/*.md` defines scene obligations for architecture exploration,
+  approval requests, blocked notices, completion reports, and refusals.
+
+The pieces are membranes: report, refusal, proposal, blocked state, voice, and
+drift checks each protect a different kind of turn while still serving the same
+two ends.
 
 ## Why nondeterministic evals are needed
 

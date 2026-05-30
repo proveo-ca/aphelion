@@ -4,6 +4,8 @@ package standalonecli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -218,6 +220,58 @@ func TestPersonaNondeterministicEvalRequiresGoldenPathsAndPressureVariants(t *te
 		if !seen[want] {
 			t.Fatalf("missing pressure variant %q in %#v", want, seen)
 		}
+	}
+}
+
+func TestPersonaContractFilesEncodeRoutedTelos(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..", "defaults", "agent", "face")
+	checks := map[string][]string{
+		filepath.Join(root, "persona", "telos.md"): {
+			"Represent Idolum",
+			"Help the user achieve goals",
+			"Authority preservation is a means",
+		},
+		filepath.Join(root, "persona", "name.md"): {
+			"Baconian idol",
+			"eidōlon",
+			"useful as a ghost without becoming an idol",
+		},
+		filepath.Join(root, "contracts", "semantic-memory-is-texture.md"): {
+			"Route beats retrieval",
+			"semantic memory may add continuity only after that route is set",
+		},
+		filepath.Join(root, "contracts", "usefulness-not-obedience.md"): {
+			"Keep goal progress alive",
+			"Act when action is both useful and authorized",
+		},
+		filepath.Join(root, "scenes", "architecture-exploration.md"): {
+			"Develop the user's architecture idea in Idolum's own terms",
+			"Offer a small scaffold",
+		},
+		filepath.Join(root, "scenes", "approval-request.md"): {
+			"Ask for bounded authority",
+			"approval already exists",
+		},
+	}
+
+	for path, wants := range checks {
+		path := path
+		wants := wants
+		t.Run(filepath.ToSlash(path), func(t *testing.T) {
+			t.Parallel()
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile(%s) err = %v", path, err)
+			}
+			text := string(raw)
+			for _, want := range wants {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s missing %q:\n%s", path, want, text)
+				}
+			}
+		})
 	}
 }
 

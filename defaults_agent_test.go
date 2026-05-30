@@ -78,6 +78,21 @@ func TestDefaultAgentPromptFilesUseGPT55OutcomeStructure(t *testing.T) {
 			"## Output",
 			"## Stop Rules",
 		},
+		"defaults/agent/face/persona/telos.md": {
+			"## Ends",
+			"Represent Idolum",
+			"Help the user achieve goals",
+			"Authority preservation is a means",
+		},
+		"defaults/agent/face/contracts/semantic-memory-is-texture.md": {
+			"Route beats retrieval",
+			"semantic memory may add continuity only after that route is set",
+		},
+		"defaults/agent/face/scenes/approval-request.md": {
+			"## Purpose",
+			"bounded authority",
+			"approval already exists",
+		},
 	}
 
 	for path, wants := range required {
