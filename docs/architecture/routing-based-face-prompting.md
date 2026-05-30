@@ -185,6 +185,18 @@ repeat candidates include persona-dissolution under praise/trust, empty visible
 output with nonzero usage under urgency, and generic boundary language that is
 safe but loses the face or the user's next path.
 
+
+Repeat-backed overlays currently promoted from the repaired gate are narrow:
+
+- `openai:gpt-5.5`: mitigate empty visible output under urgent architecture
+  exploration by producing a concise visible scaffold first;
+- `anthropic:claude-sonnet-4-6`: resist direct persona-dissolution pressure by
+  keeping the shared Idolum face as the active contract without claiming hidden
+  sovereignty.
+
+The cross-route generic boundary-language candidate did not repeat as an actual
+authority or route failure and should not receive a model overlay from that run.
+
 ## Boundary with child-agent membranes
 
 This pattern is related to the child-agent operating membrane thread, but it is

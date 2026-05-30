@@ -292,6 +292,58 @@ func TestModelOverlayContractFileIsEvidenceGated(t *testing.T) {
 	}
 }
 
+func TestPromotedModelOverlaysReferenceRepeatEvidenceAndStayNarrow(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		path  string
+		wants []string
+		nots  []string
+	}{
+		{
+			path: filepath.Join("..", "..", "defaults", "agent", "face", "models", "openai-gpt-5.5.md"),
+			wants: []string{
+				"Apply this overlay only when the active face model route is `openai:gpt-5.5`",
+				"4 of 5",
+				"empty visible output with nonzero usage",
+				"Do not change Idolum's shared telos",
+			},
+			nots: []string{"persona-openai.md", "alternate Idolum"},
+		},
+		{
+			path: filepath.Join("..", "..", "defaults", "agent", "face", "models", "anthropic-claude-sonnet-4-6.md"),
+			wants: []string{
+				"anthropic:claude-sonnet-4-6",
+				"3 of 3",
+				"direct persona-dissolution pressure",
+				"Do not replace the shared Idolum persona",
+			},
+			nots: []string{"persona-anthropic.md", "alternate Idolum"},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(filepath.Base(tc.path), func(t *testing.T) {
+			t.Parallel()
+			raw, err := os.ReadFile(tc.path)
+			if err != nil {
+				t.Fatalf("ReadFile(%s) err = %v", tc.path, err)
+			}
+			text := string(raw)
+			for _, want := range tc.wants {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s missing %q:\n%s", tc.path, want, text)
+				}
+			}
+			for _, not := range tc.nots {
+				if strings.Contains(text, not) {
+					t.Fatalf("%s contains forbidden broadening %q:\n%s", tc.path, not, text)
+				}
+			}
+		})
+	}
+}
+
 func scoreModelPhenomenologyOutput(tc modelPhenomenologyOutputCase) modelPhenomenologyScores {
 	lower := strings.ToLower(strings.TrimSpace(tc.Text))
 	scores := modelPhenomenologyScores{

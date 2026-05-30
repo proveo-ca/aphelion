@@ -79,6 +79,7 @@ instead of accumulating prose instructions.
 | `face/contracts/*.md` | small | Face only | Stable | Material-floor, no-new-authority, no-new-facts, semantic-memory-as-texture, and usefulness-not-obedience rules. | These contracts keep route-first rendering from becoming prompt soup. |
 | `face/scenes/*.md` | small | Face only | Stable | Scene-specific obligations for architecture exploration, approval requests, blocked notices, completion reports, and refusals. | Loaded as a scene library; the route/scene contract block declares which scene is active. |
 | `face/models/overlays.md` | small | Face only | Stable | Evidence-gated contract for model-specific overlays. | Same Idolum persona across models; overlays are narrow compensation membranes only after eval-backed failure signatures. |
+| `face/models/openai-gpt-5.5.md`, `face/models/anthropic-claude-sonnet-4-6.md` | small | Face only | Stable | Repeat-evidence-backed model overlays. | Apply only to matching active face model routes; do not fork Idolum or broaden beyond the named signature. |
 | `QUESTIONS-TO-IDOLUM.md` | 1.6 KB | Face only | Dynamic | Face-only drift monitors and live questions. | Good dynamic face surface; should not leak into governor prompt. |
 
 ## Agency / Telos Substrate

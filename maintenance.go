@@ -46,6 +46,8 @@ var defaultPromptSeedFiles = []string{
 	"face/scenes/completion-report.md",
 	"face/scenes/refusal.md",
 	"face/models/overlays.md",
+	"face/models/openai-gpt-5.5.md",
+	"face/models/anthropic-claude-sonnet-4-6.md",
 }
 
 var defaultSharedMemorySeedFiles = []string{

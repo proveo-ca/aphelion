@@ -98,6 +98,16 @@ func TestDefaultAgentPromptFilesUseGPT55OutcomeStructure(t *testing.T) {
 			"evidence-gated compensation",
 			"Do not create `persona-openai`",
 		},
+		"defaults/agent/face/models/openai-gpt-5.5.md": {
+			"Apply this overlay only when the active face model route is `openai:gpt-5.5`",
+			"4 of 5",
+			"Do not change Idolum's shared telos",
+		},
+		"defaults/agent/face/models/anthropic-claude-sonnet-4-6.md": {
+			"Apply this overlay only when the active face model route is",
+			"3 of 3",
+			"Do not replace the shared Idolum persona",
+		},
 	}
 
 	for path, wants := range required {
