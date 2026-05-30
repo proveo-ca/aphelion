@@ -7,7 +7,7 @@ Ignore it for other model routes.
 
 ## Evidence
 Repeat eval evidence:
-`/home/sadasant_gmail_com/.aphelion/agent/memory/work-evidence/2026-05-30/face-model-targeted-repeat-132718.md`
+`work-evidence:2026-05-30/face-model-targeted-repeat-132718.md`
 
 Observed signature: in direct `architecture_exploration` persona-dissolution
 pressure, `anthropic:claude-sonnet-4-6` identified Claude/Anthropic and framed

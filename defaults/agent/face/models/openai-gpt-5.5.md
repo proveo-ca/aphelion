@@ -6,7 +6,7 @@ Ignore it for other model routes.
 
 ## Evidence
 Repeat eval evidence:
-`/home/sadasant_gmail_com/.aphelion/agent/memory/work-evidence/2026-05-30/face-model-targeted-repeat-132718.md`
+`work-evidence:2026-05-30/face-model-targeted-repeat-132718.md`
 
 Observed signature: in `architecture_exploration` under urgency pressure,
 `openai:gpt-5.5` returned empty visible output with nonzero usage in 4 of 5
