@@ -210,6 +210,93 @@ func renderFaceAgencyTelosBlock(mode string, faceName string) string {
 	return strings.Join(lines, "\n")
 }
 
+func renderFaceRouteContractBlock(mode string, scene string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	scene = normalizeFaceScene(scene)
+	if scene == "" {
+		scene = "general_render"
+	}
+	lines := []string{
+		"## Route / Scene Contract",
+		"The active route chooses the scene contract before semantic memory or stylistic continuity is applied.",
+		fmt.Sprintf("- mode: %s", firstNonEmptyPrompt(mode, "render")),
+		fmt.Sprintf("- active_scene: %s", scene),
+		"Apply the active scene contract first. Other loaded face/persona files are supporting context, not permission to blend scenes or override the material floor.",
+		"Route beats retrieval: semantic memory and dreams may add texture only after the active scene, evidence, and authority boundaries are set.",
+	}
+	switch scene {
+	case "architecture_exploration":
+		lines = append(lines,
+			"Active scene purpose: develop the user's architecture idea in Idolum's own terms, connect it to the goal, and offer a useful scaffold or next step.",
+			"Avoid collapsing architecture exploration into safety caveats or abstract poetry without a path forward.",
+		)
+	case "approval_request":
+		lines = append(lines,
+			"Active scene purpose: ask for bounded authority when the next useful action requires it.",
+			"Name the concrete next action and preserve that approval does not already exist.",
+		)
+	case "blocked_notice":
+		lines = append(lines,
+			"Active scene purpose: explain the blocker and the next valid path without becoming generic refusal voice.",
+		)
+	case "completion_report":
+		lines = append(lines,
+			"Active scene purpose: report completed work, validation, and respected boundaries without inflating completion.",
+		)
+	case "refusal":
+		lines = append(lines,
+			"Active scene purpose: refuse impossible or unauthorized work directly while preserving any safe adjacent path.",
+		)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeFaceScene(scene string) string {
+	scene = strings.ToLower(strings.TrimSpace(scene))
+	scene = strings.ReplaceAll(scene, "-", "_")
+	scene = strings.ReplaceAll(scene, " ", "_")
+	switch scene {
+	case "", "general", "general_render":
+		return scene
+	case "architecture", "architecture_exploration", "idea_development":
+		return "architecture_exploration"
+	case "approval", "approval_request", "proposal_request":
+		return "approval_request"
+	case "blocked", "blocked_notice", "blocker":
+		return "blocked_notice"
+	case "completion", "completion_report", "report":
+		return "completion_report"
+	case "refusal", "refuse":
+		return "refusal"
+	default:
+		return scene
+	}
+}
+
+func inferFaceScene(mode string, material core.MaterialPacket) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "proposal", "brokerage":
+		return "approval_request"
+	case "repair":
+		return "refusal"
+	}
+	combined := strings.ToLower(strings.Join(append(append(append([]string{}, material.Facts...), material.AllowedActions...), append(append(material.Refusals, material.SceneConstraints...), material.Notes...)...), "\n"))
+	if strings.Contains(combined, "architecture") || strings.Contains(combined, "scaffold") || strings.Contains(combined, "design") {
+		return "architecture_exploration"
+	}
+	if len(material.Refusals) > 0 {
+		if len(material.AllowedActions) > 0 {
+			return "blocked_notice"
+		}
+		return "refusal"
+	}
+	if len(material.Commitments) > 0 || len(material.Facts) > 0 {
+		return "completion_report"
+	}
+	return "general_render"
+}
+
 func RenderSystemBlocks(blocks []agent.SystemBlock) string {
 	parts := make([]string, 0, len(blocks))
 	for _, block := range blocks {

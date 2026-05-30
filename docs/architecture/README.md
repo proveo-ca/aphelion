@@ -42,6 +42,7 @@ These invariants are normative for architecture and requirements alignment:
 - [action-proposal-continuation-lease.md](action-proposal-continuation-lease.md): typed bounded action proposals and consumable continuation leases.
 - [constitution-and-delivery.md](constitution-and-delivery.md): floor/scene and commit/delivery invariants.
 - [operator-presentation-contract.md](operator-presentation-contract.md): human Telegram/CLI presentation contract for status, rationale, next action, details, and evidence.
+- [routing-based-face-prompting.md](routing-based-face-prompting.md): route-first face prompt assembly and nondeterministic persona eval invariants.
 - [durable-children.md](durable-children.md): bounded child topology and adapters.
 - [thread-native-durable-work.md](thread-native-durable-work.md): exploratory direction for making threads the operator-facing durable work primitive while keeping authority typed.
 - [state-surfaces.md](state-surfaces.md): transcript, sidecars, and operational state.
