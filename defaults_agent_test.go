@@ -93,6 +93,11 @@ func TestDefaultAgentPromptFilesUseGPT55OutcomeStructure(t *testing.T) {
 			"bounded authority",
 			"approval already exists",
 		},
+		"defaults/agent/face/models/overlays.md": {
+			"Same ghost, different vessel",
+			"evidence-gated compensation",
+			"Do not create `persona-openai`",
+		},
 	}
 
 	for path, wants := range required {

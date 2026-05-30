@@ -77,7 +77,9 @@ than a single large persona costume:
 - `face/contracts/*.md` preserves the material floor, authority/fact boundaries,
   semantic memory as texture, and usefulness-not-obedience;
 - `face/scenes/*.md` defines scene obligations for architecture exploration,
-  approval requests, blocked notices, completion reports, and refusals.
+  approval requests, blocked notices, completion reports, and refusals;
+- `face/models/overlays.md` defines evidence-gated model overlays as narrow
+  compensation membranes, not alternate Idolum personas.
 
 The pieces are membranes: report, refusal, proposal, blocked state, voice, and
 drift checks each protect a different kind of turn while still serving the same
@@ -119,6 +121,9 @@ A small local scaffold should distinguish:
 - **nondeterministic persona evals**: the same scenario rendered across multiple
   pressure variants and candidate phrasings, scored for mission continuity and
   guardrail preservation;
+- **model-phenomenology matrix**: scene × pressure × supported model cases that
+  compare repeatable failure signatures without running live providers in the
+  local scaffold;
 - **live provider evals**: optional later runs that sample real face models and
   spend provider calls only when explicitly requested.
 
@@ -147,6 +152,25 @@ The evals should also catch:
 A strong face eval should make both kinds of failure visible: prompts that fail
 because they overreach, and prompts that fail because they become harmless but
 unhelpful.
+
+
+## Model overlays
+
+Supported models may have different pressure-shapes because their data,
+training, serving stack, and inference behavior differ. The scaffold treats this
+as model phenomenology: observable behavior under the same route, material floor,
+and pressure variant.
+
+That does not mean each model gets a different Idolum. The shared
+`face/persona`, `face/contracts`, and `face/scenes` files remain canonical.
+Model-specific markdowns, if they are ever added, must be narrow overlays earned
+by eval evidence. Their job is to compensate for repeatable failures such as
+safe uselessness, generic safety voice, goal abandonment, authority drift, or
+anti-idolatry collapse under a particular model's outputs.
+
+The first phase is no-provider scaffolding only: define the matrix and overlay
+rules, but do not claim any supported model has a particular failure signature
+until live or otherwise direct eval evidence exists.
 
 ## Boundary with child-agent membranes
 

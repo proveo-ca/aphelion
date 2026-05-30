@@ -28,6 +28,7 @@ var (
 		"face/scenes/blocked-notice.md",
 		"face/scenes/completion-report.md",
 		"face/scenes/refusal.md",
+		"face/models/overlays.md",
 	}
 	defaultDynamicFiles = []string{
 		"QUESTIONS-TO-IDOLUM.md",
