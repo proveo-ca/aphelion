@@ -101,6 +101,33 @@ Code anchors:
 - [`config/validate_governor.go`](../../config/validate_governor.go)
 - [`config/validate_provider_work.go`](../../config/validate_provider_work.go)
 
+## Memory
+
+`memory` is the governed continuity substrate.
+
+- Owns local curated and semantic memory services, import provenance/review
+  state, promotion mechanics, recall budgeting primitives, and perception-budget
+  accounting.
+- May define typed posture/layer/accounting contracts for context selection so
+  callers can attest what memory entered or was suppressed.
+- Should keep recall, provenance, quarantine, and promotion mechanics separate
+  from operator authority: remembered material can inform perception but cannot
+  grant permission.
+- Must not own transport behavior, provider calls, operator authority, tool
+  execution, Telegram UX, deploy/restart decisions, or final runtime turn
+  orchestration.
+- The invariant is: memory is governed perception under context scarcity.
+  Semantic recall is recall, not fact; motifs and dreams are low-authority
+  continuity signals; imported archives require provenance and review before
+  becoming durable context.
+
+Code anchors:
+
+- [`memory/doc.go`](../../memory/doc.go)
+- [`memory/perception_budget.go`](../../memory/perception_budget.go)
+- [`memory/semantic.go`](../../memory/semantic.go)
+- [`memory/curated.go`](../../memory/curated.go)
+
 ## Boundary Guards
 
 - [`architecture_import_guard_test.go`](../../architecture_import_guard_test.go) enforces stable import boundaries between composition, runtime, turn, pipeline, transport, storage, and tool packages.
