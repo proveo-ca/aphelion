@@ -37,6 +37,7 @@ const (
 	PerceptionLayerRhizome         PerceptionLayerName = "rhizome"
 	PerceptionLayerDreams          PerceptionLayerName = "dreams"
 	PerceptionLayerImportedArchive PerceptionLayerName = "imported_archive"
+	PerceptionLayerUnknown         PerceptionLayerName = "unknown"
 )
 
 // PerceptionEpistemicStatus describes what kind of claim a layer may carry once
@@ -232,6 +233,8 @@ func normalizePerceptionLayerName(name PerceptionLayerName) PerceptionLayerName 
 	switch PerceptionLayerName(strings.ToLower(strings.TrimSpace(string(name)))) {
 	case PerceptionLayerAuthority:
 		return PerceptionLayerAuthority
+	case PerceptionLayerCurrentInput:
+		return PerceptionLayerCurrentInput
 	case PerceptionLayerToolEvidence:
 		return PerceptionLayerToolEvidence
 	case PerceptionLayerRecentSession:
@@ -246,8 +249,10 @@ func normalizePerceptionLayerName(name PerceptionLayerName) PerceptionLayerName 
 		return PerceptionLayerDreams
 	case PerceptionLayerImportedArchive:
 		return PerceptionLayerImportedArchive
+	case PerceptionLayerUnknown:
+		return PerceptionLayerUnknown
 	default:
-		return PerceptionLayerCurrentInput
+		return PerceptionLayerUnknown
 	}
 }
 
@@ -269,8 +274,10 @@ func defaultPerceptionEpistemicStatus(name PerceptionLayerName) PerceptionEpiste
 		return PerceptionStatusHypothesis
 	case PerceptionLayerImportedArchive:
 		return PerceptionStatusImported
+	case PerceptionLayerUnknown:
+		return PerceptionStatusHypothesis
 	default:
-		return PerceptionStatusCurrent
+		return PerceptionStatusHypothesis
 	}
 }
 
@@ -306,6 +313,12 @@ func stableSortPerceptionCandidates(posture PerceptionPosture, layers []Percepti
 }
 
 func perceptionSuppressionReason(posture PerceptionPosture, layer PerceptionLayerRequest, contract PerceptionBudgetContract) (string, bool) {
+	if layer.Name == PerceptionLayerUnknown {
+		return "unknown_layer", true
+	}
+	if layer.Name == PerceptionLayerImportedArchive && layer.ImportState != SemanticImportStateApproved {
+		return "import_state_not_approved", true
+	}
 	if layer.ImportState == SemanticImportStateQuarantine || layer.ImportState == SemanticImportStateRejected {
 		return "import_state_not_approved", true
 	}

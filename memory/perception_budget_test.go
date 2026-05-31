@@ -111,7 +111,7 @@ func TestPerceptionBudgetReflectiveAdmitsMotifsButCapsMemory(t *testing.T) {
 	}
 }
 
-func TestPerceptionBudgetQuarantinedImportsRemainExcluded(t *testing.T) {
+func TestPerceptionBudgetImportedArchivesRequireExplicitApproval(t *testing.T) {
 	t.Parallel()
 
 	contract := BuildPerceptionBudgetContract(PerceptionBudgetRequest{
@@ -120,7 +120,8 @@ func TestPerceptionBudgetQuarantinedImportsRemainExcluded(t *testing.T) {
 		MaxContextRatio: 0.50,
 		Layers: []PerceptionLayerRequest{
 			{Name: PerceptionLayerCurrentInput, EstimatedTokens: 80, Required: true},
-			{Name: PerceptionLayerImportedArchive, Source: "codex_sessions/old.jsonl", EstimatedTokens: 200, ImportState: SemanticImportStateQuarantine},
+			{Name: PerceptionLayerImportedArchive, Source: "codex_sessions/empty-state.jsonl", EstimatedTokens: 200},
+			{Name: PerceptionLayerImportedArchive, Source: "codex_sessions/quarantined.jsonl", EstimatedTokens: 200, ImportState: SemanticImportStateQuarantine},
 			{Name: PerceptionLayerImportedArchive, Source: "openclaw/approved", EstimatedTokens: 200, ImportState: SemanticImportStateApproved},
 		},
 	})
@@ -129,7 +130,37 @@ func TestPerceptionBudgetQuarantinedImportsRemainExcluded(t *testing.T) {
 	if approved.Source != "openclaw/approved" || approved.EpistemicStatus != PerceptionStatusImported {
 		t.Fatalf("approved import accounting = %#v", approved)
 	}
-	assertSuppressedLayer(t, contract, PerceptionLayerImportedArchive, "import_state_not_approved")
+	count := 0
+	for _, suppressed := range contract.Suppressed {
+		if suppressed.Name == PerceptionLayerImportedArchive && suppressed.Reason == "import_state_not_approved" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("suppressed imports = %#v, want empty and quarantined states suppressed", contract.Suppressed)
+	}
+}
+
+func TestPerceptionBudgetUnknownLayersAreSuppressed(t *testing.T) {
+	t.Parallel()
+
+	contract := BuildPerceptionBudgetContract(PerceptionBudgetRequest{
+		Posture:         PerceptionPostureImplementation,
+		ContextWindow:   2000,
+		MaxContextRatio: 0.50,
+		Layers: []PerceptionLayerRequest{
+			{Name: PerceptionLayerName("future_layer"), Source: "malformed", EstimatedTokens: 50},
+			{Name: PerceptionLayerCurrentInput, EstimatedTokens: 80, Required: true},
+		},
+	})
+
+	assertAdmittedLayer(t, contract, PerceptionLayerCurrentInput)
+	assertSuppressedLayer(t, contract, PerceptionLayerUnknown, "unknown_layer")
+	for _, layer := range contract.Admitted {
+		if layer.Source == "malformed" || layer.Name == PerceptionLayerUnknown {
+			t.Fatalf("unknown layer admitted: %#v", layer)
+		}
+	}
 }
 
 func TestPerceptionBudgetRequiredLayersCanExceedCapsButAttestRisk(t *testing.T) {
