@@ -151,11 +151,18 @@ type CompleteOptions struct {
 	ProviderFailover *ProviderFailoverState
 	Observer         TurnObserver
 	ContextBudget    *ContextBudget
+	EmptyRetry       *EmptySuccessRetryState
 }
 
 type ProviderFailoverState struct {
 	PreferredProvider string
 	Reason            string
+}
+
+// EmptySuccessRetryState records when a successful provider response was
+// semantically empty and retried with relaxed per-run limits.
+type EmptySuccessRetryState struct {
+	Retries int
 }
 
 type ContextBudget struct {
@@ -494,6 +501,12 @@ func completeWithRetry(
 		}
 		finishModelRequest(ctx, observer, event, started, resp, err)
 		if err == nil {
+			if retryMaxTokens, ok := nextEmptySuccessRetryMaxTokens(resp, opts); ok {
+				markEmptySuccessRetried(opts, retryMaxTokens)
+				log.Printf("WARN provider returned empty successful response; retrying with max_tokens=%d", retryMaxTokens)
+				attempt++
+				continue
+			}
 			return resp, nil
 		}
 
@@ -514,6 +527,40 @@ func completeWithRetry(
 		backoff *= 2
 		attempt++
 	}
+}
+
+const (
+	emptySuccessRetryInitialMaxTokens = 2048
+	emptySuccessRetryMaxTokens        = 8192
+)
+
+func nextEmptySuccessRetryMaxTokens(resp *Response, opts *CompleteOptions) (int, bool) {
+	if resp == nil || opts == nil {
+		return 0, false
+	}
+	if strings.TrimSpace(resp.Content) != "" || len(resp.ToolCalls) != 0 || len(resp.Media) != 0 {
+		return 0, false
+	}
+	current := opts.MaxTokens
+	if current <= 0 || current < emptySuccessRetryInitialMaxTokens {
+		current = emptySuccessRetryInitialMaxTokens
+	}
+	next := current * 2
+	if next <= current || next > emptySuccessRetryMaxTokens {
+		return 0, false
+	}
+	return next, true
+}
+
+func markEmptySuccessRetried(opts *CompleteOptions, maxTokens int) {
+	if opts == nil {
+		return
+	}
+	if opts.EmptyRetry == nil {
+		opts.EmptyRetry = &EmptySuccessRetryState{}
+	}
+	opts.EmptyRetry.Retries++
+	opts.MaxTokens = maxTokens
 }
 
 func modelRequestEvent(attempt int, historyCount int, toolCount int, preflight contextPreflight) ModelRequestEvent {
