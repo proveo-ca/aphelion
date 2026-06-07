@@ -51,6 +51,7 @@ type WorkResult struct {
 	RecoverySummary  string
 	ProviderFailure  string
 	ProviderEvents   []core.ProviderEvent
+	Recovery         *core.TurnRecovery
 	ChangedFiles     []string
 	Commands         []string
 	CodexEvents      []session.WorkCodexEvent
@@ -262,6 +263,8 @@ func (e nativeWorkExecutor) Run(ctx context.Context, req WorkRequest) (WorkResul
 		out.ProviderFailure = strings.TrimSpace(result.ProviderFailure)
 		out.ProviderEvents = append([]core.ProviderEvent(nil), result.ProviderEvents...)
 		if recovery, ok := nativeWorkTurnRecovery(result); ok {
+			recoveryCopy := *recovery
+			out.Recovery = &recoveryCopy
 			out.RecoveryKind = strings.TrimSpace(string(recovery.Kind))
 			out.RecoverySummary = strings.TrimSpace(recovery.Summary)
 			out.CompletionKind = "native_turn_budget_recovery"
