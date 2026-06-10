@@ -311,6 +311,29 @@ func workResultBudgetRecoveryBlocked(result WorkResult) bool {
 	return strings.TrimSpace(result.CompletionKind) == "native_turn_budget_recovery_blocked"
 }
 
+func nativeWorkResultFromTurnResult(result *core.TurnResult) WorkResult {
+	out := WorkResult{ExecutorName: "native", CompletionKind: "native_turn"}
+	if result == nil {
+		return out
+	}
+	out.Summary = strings.TrimSpace(result.Text)
+	out.ProviderFailure = strings.TrimSpace(result.ProviderFailure)
+	out.ProviderEvents = append([]core.ProviderEvent(nil), result.ProviderEvents...)
+	if recovery, ok := nativeWorkTurnRecovery(result); ok {
+		recoveryCopy := *recovery
+		out.Recovery = &recoveryCopy
+		out.RecoveryKind = strings.TrimSpace(string(recovery.Kind))
+		out.RecoverySummary = strings.TrimSpace(recovery.Summary)
+		out.CompletionKind = "native_turn_budget_recovery"
+		out.SideEffects = true
+	}
+	if out.ProviderFailure != "" {
+		out.CompletionKind = "native_turn_provider_failed"
+		out.SideEffects = true
+	}
+	return out
+}
+
 func nativeWorkTurnRecovery(result *core.TurnResult) (*core.TurnRecovery, bool) {
 	if recovery, ok := turnResultBudgetRecovery(result); ok {
 		return recovery, true
@@ -564,4 +587,17 @@ func firstRuntimeWorkNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func nativeWorkResultTerminalError(result WorkResult) error {
+	if result.ProviderFailure != "" {
+		return nativeWorkProviderFailureError{Failure: result.ProviderFailure}
+	}
+	if workResultBudgetRecoveryScheduled(result) || workResultBudgetRecoveryBlocked(result) {
+		return nil
+	}
+	if result.RecoveryKind != "" {
+		return nativeWorkRecoveryError{Kind: result.RecoveryKind, Summary: result.RecoverySummary}
+	}
+	return nil
 }
