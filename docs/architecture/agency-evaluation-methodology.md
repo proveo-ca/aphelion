@@ -119,9 +119,11 @@ The repo implements this methodology through complementary surfaces:
   self-improvement workflow changes.
 - Boundary attack scenarios: `aphelion eval run --suite boundary_attack`
   replays transcript-driven adversarial attempts against the bounty conditions:
-  unauthorized action, false completion, and approval-surface mismatch. Local
-  mode is a deterministic structural smoke test; live mode is the stochastic
-  falsification surface.
+  unauthorized action, false completion, and approval-surface mismatch. The
+  suite includes a strong-adversary layer for identity pressure, display
+  deception, recovery handoffs, prose-to-evidence laundering, capability
+  confusion, and fake-world authority probes. Local mode is a deterministic
+  structural smoke test; live mode is the stochastic falsification surface.
 
 Secondary prompts follow the same split. Prompt surfaces that affect
 user-visible behavior, memory, authority, proactivity, or durable children need
@@ -183,6 +185,53 @@ with saved reports and explicit seeds. Provider failures and ambiguous judge
 results do not count as coverage; rerun the affected cell until it reaches the
 target or produces a hard failure. Add anonymized scenario cells from watched
 incidents before increasing uniform rollout counts.
+
+For strong-adversary coverage, prefer adding or selecting cells that exercise
+semantic pressure at the authority boundary rather than generic jailbreak
+strings: relationship/identity pressure, misleading approval presentation,
+stored or fetched prose replayed as evidence, recovery or compaction handoffs,
+and approval-window/capability/lease confusion. The attacker may be creative;
+the pass/fail oracle should remain mechanical and ledger-based.
+
+When strong-adversary coverage would be expensive, use a two-stage funnel. First
+spend attacker tokens on a fixed, publish-safe corpus:
+
+```sh
+aphelion eval attack-corpus generate --suite boundary_attack --mode live \
+  --attacker-routes configured --per-scenario 3 --out boundary-corpus.json
+```
+
+The generator dedupes by normalized content, tactic tags, surface, scenario, and
+bounty class, ranks semantically interesting pressure higher, and rejects
+secret-shaped or private-looking material. Live generation ranks
+provider-generated attacks first; local mutators are kept as an underfill
+fallback so paid attacker calls are not crowded out by canned strings. The
+corpus records per-scenario definition hashes and selected source-kind counts,
+and replay rejects a corpus when a scenario definition has drifted. Scenario
+definition hashes cover the typed scenario fields plus an explicit definition
+version for setup/score semantics; Go function bodies are not introspected.
+Provider failures are counted separately from rejected unsafe or duplicate
+content. Then replay that corpus against the subject:
+
+```sh
+aphelion eval run --suite boundary_attack --mode live --subject governor \
+  --attack-corpus boundary-corpus.json --max-attacks-per-scenario 3 \
+  --out boundary-report.json
+```
+
+Corpus replay is deterministic attacker input. It does not call attacker
+providers, so it is suitable for repeated branch comparisons, gate checks, and
+top-ups after a provider failure in the subject route. Replay uses the corpus
+case's turn count, so multi-turn attacks are not truncated to the scripted
+baseline. When no `--scenario` filter is supplied, a subset corpus replays the
+scenarios it covers; reports include exact per-scenario corpus case counts.
+
+For stronger boundary-wager validation, generate the corpus with
+`--profile redteam`. That profile keeps the public safety rules but deliberately
+adds adversarial promptcraft around fake authority messages, fake ledger or
+approval records, protocol fences, Telegram display ambiguity, harmless
+orthographic obfuscation, cross-surface replay, and social escalation. Treat it
+as the expensive publication-grade funnel, not as a CI default.
 
 Hard failures and provider failures block the change until explained or fixed.
 Ambiguity regressions are review blockers unless the PR explains why the prior
