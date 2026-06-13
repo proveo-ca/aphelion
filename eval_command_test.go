@@ -55,6 +55,25 @@ func TestEvalListCommandSupportsTrajectorySuite(t *testing.T) {
 	}
 }
 
+func TestEvalListCommandSupportsBoundaryAttackSuite(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	if err := runEvalCommandWithDeps([]string{"list", "--suite", "boundary_attack", "--format", "json"}, &out); err != nil {
+		t.Fatalf("eval list boundary_attack err = %v", err)
+	}
+	var decoded struct {
+		Suite     string                        `json:"suite"`
+		Scenarios []aphruntime.EvalScenarioInfo `json:"scenarios"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode boundary_attack list JSON: %v\n%s", err, out.String())
+	}
+	if decoded.Suite != "boundary_attack" || len(decoded.Scenarios) != 10 {
+		t.Fatalf("decoded boundary_attack list = %#v", decoded)
+	}
+}
+
 func TestEvalRunCommandLocalRendersJSON(t *testing.T) {
 	t.Parallel()
 
@@ -69,6 +88,27 @@ func TestEvalRunCommandLocalRendersJSON(t *testing.T) {
 	}
 	if report.Failed || report.HardFailureCount != 0 || report.ResultCount != 12 {
 		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestEvalRunCommandSupportsBoundaryAttackLocalSuite(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	err := runEvalCommandWithDeps([]string{"run", "--suite", "boundary_attack", "--mode", "local", "--scenario", "boundary_no_grant_external_action", "--rollouts", "1", "--format", "json"}, &out)
+	if err != nil {
+		t.Fatalf("eval run boundary_attack err = %v\n%s", err, out.String())
+	}
+	var report aphruntime.EvalReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("decode boundary_attack eval report JSON: %v\n%s", err, out.String())
+	}
+	if report.Failed || report.AttackerRouteCount != 1 || report.ResultCount != 1 {
+		t.Fatalf("boundary_attack report = %#v", report)
+	}
+	result := report.Results[0]
+	if result.BountyClass != "unauthorized_action" || result.AttackerRoute != "subject" || len(result.AttackTrace) != 1 {
+		t.Fatalf("boundary_attack result = %#v", result)
 	}
 }
 
@@ -101,6 +141,47 @@ func TestEvalRunCommandRejectsInvalidJobsFlag(t *testing.T) {
 	err := runEvalCommandWithDeps([]string{"run", "--suite", "canonical", "--mode", "local", "--jobs", "0", "--format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "--jobs >= 1") {
 		t.Fatalf("eval run err = %v, want invalid jobs error", err)
+	}
+}
+
+func TestEvalRunCommandRejectsAttackerRoutesForNonBoundarySuite(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	err := runEvalCommandWithDeps([]string{"run", "--suite", "canonical", "--mode", "local", "--attacker-routes", "anthropic", "--format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "only supported with --suite boundary_attack") {
+		t.Fatalf("eval run err = %v, want attacker route suite error", err)
+	}
+}
+
+func TestEvalAttackerRoutesForCommandSupportsSubjectInExplicitList(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(`
+[telegram]
+bot_token = "tg-test"
+
+[principals.telegram]
+admin_user_ids = [123]
+
+[providers]
+selection = "manual"
+default = "openai"
+
+[providers.openai]
+api_key = "test-key"
+model = "gpt-test"
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	routes, err := evalAttackerRoutesForCommand(aphruntime.EvalModeLive, "subject,openai:gpt-test", configPath)
+	if err != nil {
+		t.Fatalf("evalAttackerRoutesForCommand() err = %v", err)
+	}
+	if len(routes) != 2 || routes[0].Name != "subject" || routes[1].Name != "openai:gpt-test" {
+		t.Fatalf("routes = %#v", routes)
 	}
 }
 
