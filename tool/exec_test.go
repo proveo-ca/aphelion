@@ -39,6 +39,202 @@ func (s *stubExecApprover) ConfirmExec(_ context.Context, req ExecApprovalReques
 	return ExecApprovalDecision{Approved: s.approved}, nil
 }
 
+func TestExecContinuationAuthorityRejectsAutoApprovalWidening(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	approver := &stubExecApprover{approved: true}
+	registry := NewRegistry(workspace, time.Second).WithExecApprover(approver)
+	now := time.Now().UTC()
+	state := session.ContinuationState{
+		Kind:           session.TurnAuthorizationKindContinuation,
+		Status:         session.ContinuationStatusApproved,
+		RemainingTurns: 1,
+		ApprovedBy:     1001,
+		ActionProposal: session.ActionProposal{
+			ID:             "aprop-read-only",
+			RiskClass:      "read_only_review",
+			AllowedActions: []string{"read_only", "inspect_code", "report_findings"},
+			Status:         session.ProposalStatusApproved,
+		},
+		ContinuationLease: session.ContinuationLease{
+			ID:             "lease-read-only",
+			ProposalID:     "aprop-read-only",
+			Status:         session.ContinuationLeaseStatusActive,
+			RemainingTurns: 1,
+			AllowedActions: []string{"read_only", "inspect_code", "report_findings"},
+			ExpiresAt:      now.Add(time.Hour),
+		},
+	}
+	ctx := WithContinuationExecAuthority(context.Background(), state)
+	_, err := registry.executeWithScopeAndPrincipal(ctx, "exec", json.RawMessage(`{"command":"gh pr create --base main --head fix --title test --body test"}`), sandbox.Scope{WorkingRoot: workspace, SharedMemoryRoot: workspace}, principal.Principal{Role: principal.RoleApprovedUser, TelegramUserID: 1001}, session.SessionKey{ChatID: 8801, UserID: 0})
+	if err == nil || !strings.Contains(err.Error(), "command exceeds active continuation authority") {
+		t.Fatalf("exec err = %v, want continuation authority rejection", err)
+	}
+	if approver.called != 0 {
+		t.Fatalf("approver called = %d, want rejection before proposal approval can widen authority", approver.called)
+	}
+}
+
+func TestContinuationExecAuthorityAllowsExternalAccountPRCreateWithGrant(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	state := session.ContinuationState{
+		Kind:           session.TurnAuthorizationKindContinuation,
+		Status:         session.ContinuationStatusApproved,
+		RemainingTurns: 1,
+		ApprovedBy:     1001,
+		ActionProposal: session.ActionProposal{
+			ID:             "aprop-release-pr",
+			RiskClass:      "external_account_pr_create",
+			AllowedActions: []string{"github_pr_create", "report_pr_link"},
+			Status:         session.ProposalStatusApproved,
+		},
+		ContinuationLease: session.ContinuationLease{
+			ID:                 "lease-release-pr",
+			ProposalID:         "aprop-release-pr",
+			Status:             session.ContinuationLeaseStatusActive,
+			RemainingTurns:     1,
+			LeaseClass:         session.ContinuationLeaseClassCapabilityGrant,
+			AllowedActions:     []string{"github_pr_create", "invoke_active_capability_grant", "report_capability_result"},
+			CapabilityGrantIDs: []string{"capg-release-pr"},
+			ExpiresAt:          now.Add(time.Hour),
+		},
+	}
+	decision := ContinuationExecAuthorityDecisionForCommand(state, "gh pr create --base release/v0.2.5 --head main --title test --body test", now)
+	if !decision.Active || !decision.Boundary || !decision.Allowed {
+		t.Fatalf("decision = %#v, want external-account PR create allowed by envelope", decision)
+	}
+	if decision.RequiredAction != "github_pr_create" {
+		t.Fatalf("required action = %q, want github_pr_create", decision.RequiredAction)
+	}
+}
+
+func TestContinuationExecAuthorityAllowsExternalAccountStatusCheckOnly(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	state := session.ContinuationState{
+		Kind:           session.TurnAuthorizationKindContinuation,
+		Status:         session.ContinuationStatusApproved,
+		RemainingTurns: 1,
+		ApprovedBy:     1001,
+		ActionProposal: session.ActionProposal{
+			ID:             "aprop-gh-status",
+			RiskClass:      "external_account_status_check",
+			AllowedActions: []string{"external_account_status_check", "report_release_status"},
+			Status:         session.ProposalStatusApproved,
+		},
+		ContinuationLease: session.ContinuationLease{
+			ID:             "lease-gh-status",
+			ProposalID:     "aprop-gh-status",
+			Status:         session.ContinuationLeaseStatusActive,
+			RemainingTurns: 1,
+			LeaseClass:     session.ContinuationLeaseClassDataAccess,
+			AllowedActions: []string{"external_account_status_check", "report_release_status"},
+			ExpiresAt:      now.Add(time.Hour),
+		},
+	}
+	status := ContinuationExecAuthorityDecisionForCommand(state, "gh auth status", now)
+	if !status.Active || !status.Boundary || !status.Allowed {
+		t.Fatalf("status decision = %#v, want status command allowed", status)
+	}
+	mutation := ContinuationExecAuthorityDecisionForCommand(state, "gh pr create --base main --head fix --title test --body test", now)
+	if !mutation.Active || !mutation.Boundary || mutation.Allowed {
+		t.Fatalf("mutation decision = %#v, want PR creation rejected under status-only authority", mutation)
+	}
+}
+
+func TestContinuationExecAuthorityBoundaryKindsAllowAndDeny(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	tests := []struct {
+		name           string
+		command        string
+		allowRiskClass string
+		allowActions   []string
+		wantAction     string
+	}{
+		{
+			name:           "git push",
+			command:        "git push origin fix/continuation-authority-envelope",
+			allowRiskClass: "deploy",
+			allowActions:   []string{"git_push", "report_release_result"},
+			wantAction:     "git_push",
+		},
+		{
+			name:           "remote host",
+			command:        "ssh aphelion.example uptime",
+			allowRiskClass: "remote_host_operation",
+			allowActions:   []string{"remote_host_operation", "report_remote_status"},
+			wantAction:     "remote_host_operation",
+		},
+		{
+			name:           "service process",
+			command:        "systemctl --user restart aphelion.service",
+			allowRiskClass: "deploy",
+			allowActions:   []string{"restart_service", "post_restart_verification"},
+			wantAction:     "restart_service",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			allowed := ContinuationExecAuthorityDecisionForCommand(
+				continuationExecAuthorityTestState(tt.allowRiskClass, tt.allowActions, false, now),
+				tt.command,
+				now,
+			)
+			if !allowed.Active || !allowed.Boundary || !allowed.Allowed {
+				t.Fatalf("allowed decision = %#v, want boundary command allowed by explicit envelope action", allowed)
+			}
+			if allowed.RequiredAction != tt.wantAction {
+				t.Fatalf("required action = %q, want %q", allowed.RequiredAction, tt.wantAction)
+			}
+
+			denied := ContinuationExecAuthorityDecisionForCommand(
+				continuationExecAuthorityTestState("read_only_review", []string{"read_only", "inspect_code", "report_findings"}, false, now),
+				tt.command,
+				now,
+			)
+			if !denied.Active || !denied.Boundary || denied.Allowed {
+				t.Fatalf("denied decision = %#v, want boundary command denied by ordinary read-only envelope", denied)
+			}
+		})
+	}
+}
+
+func continuationExecAuthorityTestState(riskClass string, allowedActions []string, capabilityGrant bool, now time.Time) session.ContinuationState {
+	lease := session.ContinuationLease{
+		ID:             "lease-" + strings.ReplaceAll(riskClass, "_", "-"),
+		ProposalID:     "aprop-" + strings.ReplaceAll(riskClass, "_", "-"),
+		Status:         session.ContinuationLeaseStatusActive,
+		RemainingTurns: 1,
+		AllowedActions: append([]string(nil), allowedActions...),
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	if capabilityGrant {
+		lease.LeaseClass = session.ContinuationLeaseClassCapabilityGrant
+		lease.CapabilityGrantIDs = []string{"capg-" + strings.ReplaceAll(riskClass, "_", "-")}
+	}
+	return session.ContinuationState{
+		Kind:           session.TurnAuthorizationKindContinuation,
+		Status:         session.ContinuationStatusApproved,
+		RemainingTurns: 1,
+		ApprovedBy:     1001,
+		ActionProposal: session.ActionProposal{
+			ID:             lease.ProposalID,
+			RiskClass:      riskClass,
+			AllowedActions: append([]string(nil), allowedActions...),
+			Status:         session.ProposalStatusApproved,
+		},
+		ContinuationLease: lease,
+	}
+}
+
 func setFakeBubblewrapRunner(t *testing.T, registry *Registry) {
 	t.Helper()
 
