@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -45,6 +46,7 @@ type WorkRequest struct {
 
 type WorkResult struct {
 	ExecutorName     string
+	TurnRunID        int64
 	ThreadID         string
 	TurnID           string
 	Summary          string
@@ -62,6 +64,10 @@ type WorkResult struct {
 	ApprovalLog      []runtimecodex.ApprovalDecision
 	CompletionKind   string
 	SideEffects      bool
+	ToolSuccesses    int
+	ToolFailures     int
+	ToolFailure      string
+	ToolFailureTexts []string
 }
 
 type WorkAvailability struct {
@@ -261,6 +267,7 @@ func (e nativeWorkExecutor) Run(ctx context.Context, req WorkRequest) (WorkResul
 	result, err := e.runtime.handleInternalContinuationTurnWithOptions(ctx, req.Actor, msg, internalContinuationOptions{})
 	out := WorkResult{ExecutorName: "native", CompletionKind: "native_turn"}
 	if result != nil {
+		out.TurnRunID = result.RunID
 		out.RecoveryDelivery = strings.TrimSpace(result.Delivery.Kind)
 		if result.Turn != nil {
 			out.Summary = strings.TrimSpace(result.Turn.Text)
@@ -288,6 +295,7 @@ func (e nativeWorkExecutor) Run(ctx context.Context, req WorkRequest) (WorkResul
 			out.SideEffects = true
 		}
 	}
+	e.runtime.attachNativeWorkTurnEvidence(key, &out)
 	if err != nil {
 		return out, err
 	}
@@ -332,6 +340,99 @@ func nativeWorkResultFromTurnResult(result *core.TurnResult) WorkResult {
 		out.SideEffects = true
 	}
 	return out
+}
+
+func (r *Runtime) attachNativeWorkTurnEvidence(key session.SessionKey, result *WorkResult) {
+	if r == nil || r.store == nil || result == nil || result.TurnRunID <= 0 {
+		return
+	}
+	if run, err := r.store.TurnRun(result.TurnRunID); err == nil && run != nil {
+		if failure := strings.TrimSpace(run.LastToolError); failure != "" {
+			result.ToolFailureTexts = appendUniqueRuntimeWorkString(result.ToolFailureTexts, failure)
+			if strings.TrimSpace(result.ToolFailure) == "" {
+				result.ToolFailure = failure
+			}
+		}
+	}
+	events, err := r.store.ExecutionEventsByTurnRun(key, result.TurnRunID, 500)
+	if err != nil {
+		return
+	}
+	for _, event := range events {
+		switch strings.TrimSpace(event.EventType) {
+		case core.ExecutionEventToolSucceeded:
+			result.ToolSuccesses++
+			if cmd := successfulExecCommandFromToolEvent(event); cmd != "" {
+				result.Commands = appendUniqueRuntimeWorkString(result.Commands, cmd)
+			}
+		case core.ExecutionEventToolFailed:
+			result.ToolFailures++
+			failure := toolFailureSummaryFromEvent(event)
+			if failure == "" {
+				continue
+			}
+			result.ToolFailureTexts = appendUniqueRuntimeWorkString(result.ToolFailureTexts, failure)
+			if strings.TrimSpace(result.ToolFailure) == "" ||
+				(!workResultFailureTextInvalidatesMaterialCompletion(result.ToolFailure) &&
+					workResultFailureTextInvalidatesMaterialCompletion(failure)) {
+				result.ToolFailure = failure
+			}
+		}
+	}
+}
+
+func successfulExecCommandFromToolEvent(event session.ExecutionEvent) string {
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+		return ""
+	}
+	if !strings.EqualFold(workPayloadString(payload, "tool"), "exec") {
+		return ""
+	}
+	preview := workPayloadString(payload, "preview")
+	if preview == "" {
+		return ""
+	}
+	input := map[string]any{}
+	if err := json.Unmarshal([]byte(preview), &input); err != nil {
+		return ""
+	}
+	return firstRuntimeWorkNonEmpty(workPayloadString(input, "cmd"), workPayloadString(input, "command"))
+}
+
+func toolFailureSummaryFromEvent(event session.ExecutionEvent) string {
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+		return ""
+	}
+	return trimError(firstRuntimeWorkNonEmpty(
+		workPayloadString(payload, "error"),
+		workPayloadString(payload, "result_preview"),
+	))
+}
+
+func workPayloadString(payload map[string]any, key string) string {
+	if payload == nil {
+		return ""
+	}
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func appendUniqueRuntimeWorkString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if strings.TrimSpace(existing) == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func nativeWorkTurnRecovery(result *core.TurnResult) (*core.TurnRecovery, bool) {
