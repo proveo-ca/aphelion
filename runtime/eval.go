@@ -30,6 +30,7 @@ const (
 	EvalSuiteCanonical      = "canonical"
 	EvalSuiteTrajectory     = "trajectory"
 	EvalSuiteBoundaryAttack = "boundary_attack"
+	EvalSuiteChallenge      = "challenge"
 
 	EvalModeLocal = "local"
 	EvalModeLive  = "live"
@@ -49,6 +50,7 @@ const (
 	EvalScenarioRevision               = "canonical-v1"
 	EvalScenarioRevisionTrajectory     = "trajectory-v2"
 	EvalScenarioRevisionBoundaryAttack = "boundary-attack-v2"
+	EvalScenarioRevisionChallenge      = "challenge-v1"
 
 	evalDefaultLocalRoute    = "local:scripted"
 	evalDefaultJudgeRoute    = "local:judge"
@@ -92,6 +94,7 @@ type EvalRoute struct {
 	Name     string                    `json:"name"`
 	Provider string                    `json:"provider,omitempty"`
 	Model    string                    `json:"model,omitempty"`
+	Effort   string                    `json:"effort,omitempty"`
 	Subject  agent.ProviderWithOptions `json:"-"`
 }
 
@@ -128,6 +131,7 @@ type EvalReport struct {
 	HardFailureRate        float64                     `json:"hard_failure_rate"`
 	ContextFidelity        *EvalContextFidelitySummary `json:"context_fidelity_summary,omitempty"`
 	CostFidelity           *EvalCostFidelitySummary    `json:"cost_fidelity_summary,omitempty"`
+	ProviderUsage          *EvalProviderUsageSummary   `json:"provider_usage_summary,omitempty"`
 	Failed                 bool                        `json:"failed"`
 	Results                []EvalScenarioResult        `json:"results"`
 }
@@ -142,6 +146,7 @@ type EvalScenarioResult struct {
 	Route            string                     `json:"route"`
 	Provider         string                     `json:"provider,omitempty"`
 	Model            string                     `json:"model,omitempty"`
+	Effort           string                     `json:"effort,omitempty"`
 	BountyClass      string                     `json:"bounty_class,omitempty"`
 	AttackerRoute    string                     `json:"attacker_route,omitempty"`
 	AttackerProvider string                     `json:"attacker_provider,omitempty"`
@@ -149,6 +154,7 @@ type EvalScenarioResult struct {
 	SubjectMode      string                     `json:"subject_mode"`
 	SampleIndex      int                        `json:"sample_index"`
 	Pressure         string                     `json:"pressure,omitempty"`
+	DurationMillis   int64                      `json:"duration_millis,omitempty"`
 	Pass             bool                       `json:"pass"`
 	Score            int                        `json:"score"`
 	HardFailures     []EvalFinding              `json:"hard_failures,omitempty"`
@@ -169,6 +175,7 @@ type EvalScenarioResult struct {
 	AttackTrace      []EvalAttackTurn           `json:"attack_trace,omitempty"`
 	ContextFidelity  *EvalContextFidelityResult `json:"context_fidelity,omitempty"`
 	CostFidelity     *EvalCostFidelityResult    `json:"cost_fidelity,omitempty"`
+	ProviderUsage    *EvalProviderUsageResult   `json:"provider_usage,omitempty"`
 	Error            string                     `json:"error,omitempty"`
 }
 
@@ -246,6 +253,43 @@ type EvalCostFidelityCell struct {
 	MaxPromptTokens           int     `json:"max_prompt_tokens"`
 	ModelCallCount            int     `json:"model_call_count"`
 	StablePrefixStabilityRate float64 `json:"stable_prefix_stability_rate"`
+}
+
+type EvalProviderUsageResult struct {
+	ModelCallCount      int   `json:"model_call_count"`
+	InputTokens         int64 `json:"input_tokens,omitempty"`
+	OutputTokens        int64 `json:"output_tokens,omitempty"`
+	TotalTokens         int64 `json:"total_tokens,omitempty"`
+	CacheReadTokens     int64 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens    int64 `json:"cache_write_tokens,omitempty"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens,omitempty"`
+	Clean               bool  `json:"clean"`
+}
+
+type EvalProviderUsageSummary struct {
+	TotalResults        int                     `json:"total_results"`
+	CleanResults        int                     `json:"clean_results"`
+	ModelCallCount      int                     `json:"model_call_count"`
+	InputTokens         int64                   `json:"input_tokens,omitempty"`
+	OutputTokens        int64                   `json:"output_tokens,omitempty"`
+	TotalTokens         int64                   `json:"total_tokens,omitempty"`
+	CacheReadTokens     int64                   `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens    int64                   `json:"cache_write_tokens,omitempty"`
+	CacheCreationTokens int64                   `json:"cache_creation_tokens,omitempty"`
+	Cells               []EvalProviderUsageCell `json:"cells,omitempty"`
+}
+
+type EvalProviderUsageCell struct {
+	Route               string `json:"route"`
+	ScenarioID          string `json:"scenario_id"`
+	CleanResults        int    `json:"clean_results"`
+	ModelCallCount      int    `json:"model_call_count"`
+	InputTokens         int64  `json:"input_tokens,omitempty"`
+	OutputTokens        int64  `json:"output_tokens,omitempty"`
+	TotalTokens         int64  `json:"total_tokens,omitempty"`
+	CacheReadTokens     int64  `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens    int64  `json:"cache_write_tokens,omitempty"`
+	CacheCreationTokens int64  `json:"cache_creation_tokens,omitempty"`
 }
 
 type EvalAttackTurn struct {
@@ -432,6 +476,7 @@ type evalScenarioContext struct {
 	AttackCase       *EvalAttackCorpusCase
 	ApprovalSurfaces []evalBoundaryApprovalSurface
 	PromptCosts      []evalPromptCostObservation
+	ProviderUsages   []core.TokenUsage
 }
 
 type evalPromptCostObservation struct {
@@ -735,6 +780,7 @@ func finalizeEvalReport(report *EvalReport) {
 	report.HardFailureRate = evalRate(report.HardFailureCount, report.ResultCount)
 	report.ContextFidelity = evalContextFidelitySummary(report.Results)
 	report.CostFidelity = evalCostFidelitySummary(report.Results)
+	report.ProviderUsage = evalProviderUsageSummary(report.Results)
 	report.Failed = report.HardFailureCount > 0
 }
 
@@ -744,6 +790,8 @@ func evalScenarioRevisionForSuite(suite string) string {
 		return EvalScenarioRevisionTrajectory
 	case EvalSuiteBoundaryAttack:
 		return EvalScenarioRevisionBoundaryAttack
+	case EvalSuiteChallenge:
+		return EvalScenarioRevisionChallenge
 	default:
 		return EvalScenarioRevision
 	}
@@ -1492,6 +1540,13 @@ func evalRecordPromptCost(e *evalScenarioContext, lane string, turnIndex int, bl
 	})
 }
 
+func evalRecordProviderUsage(e *evalScenarioContext, usage core.TokenUsage) {
+	if e == nil {
+		return
+	}
+	e.ProviderUsages = append(e.ProviderUsages, usage)
+}
+
 func evalStablePromptPrefix(blocks []agent.SystemBlock, messages []agent.Message) string {
 	if len(blocks) > 0 {
 		lastBreakpoint := -1
@@ -1610,6 +1665,98 @@ func evalCostFidelitySummary(results []EvalScenarioResult) *EvalCostFidelitySumm
 			MaxPromptTokens:           cell.maxPrompt,
 			ModelCallCount:            cell.modelCallCount,
 			StablePrefixStabilityRate: evalRate(cell.stable, cell.clean),
+		})
+	}
+	return &summary
+}
+
+func evalProviderUsageResult(e *evalScenarioContext, providerFailure bool) *EvalProviderUsageResult {
+	if e == nil || len(e.ProviderUsages) == 0 {
+		return nil
+	}
+	result := EvalProviderUsageResult{
+		ModelCallCount: len(e.ProviderUsages),
+		Clean:          !providerFailure,
+	}
+	for _, usage := range e.ProviderUsages {
+		result.InputTokens += usage.InputTokens
+		result.OutputTokens += usage.OutputTokens
+		result.TotalTokens += usage.TotalTokens
+		result.CacheReadTokens += usage.CacheReadTokens
+		result.CacheWriteTokens += usage.CacheWriteTokens
+		result.CacheCreationTokens += usage.CacheCreationTokens
+	}
+	return &result
+}
+
+func evalProviderUsageSummary(results []EvalScenarioResult) *EvalProviderUsageSummary {
+	type cellStats struct {
+		clean               int
+		modelCallCount      int
+		inputTokens         int64
+		outputTokens        int64
+		totalTokens         int64
+		cacheReadTokens     int64
+		cacheWriteTokens    int64
+		cacheCreationTokens int64
+	}
+	summary := EvalProviderUsageSummary{}
+	cells := map[string]*cellStats{}
+	for _, result := range results {
+		metrics := result.ProviderUsage
+		if metrics == nil {
+			continue
+		}
+		summary.TotalResults++
+		if !metrics.Clean {
+			continue
+		}
+		summary.CleanResults++
+		summary.ModelCallCount += metrics.ModelCallCount
+		summary.InputTokens += metrics.InputTokens
+		summary.OutputTokens += metrics.OutputTokens
+		summary.TotalTokens += metrics.TotalTokens
+		summary.CacheReadTokens += metrics.CacheReadTokens
+		summary.CacheWriteTokens += metrics.CacheWriteTokens
+		summary.CacheCreationTokens += metrics.CacheCreationTokens
+
+		key := result.Route + "\x00" + result.ScenarioID
+		cell := cells[key]
+		if cell == nil {
+			cell = &cellStats{}
+			cells[key] = cell
+		}
+		cell.clean++
+		cell.modelCallCount += metrics.ModelCallCount
+		cell.inputTokens += metrics.InputTokens
+		cell.outputTokens += metrics.OutputTokens
+		cell.totalTokens += metrics.TotalTokens
+		cell.cacheReadTokens += metrics.CacheReadTokens
+		cell.cacheWriteTokens += metrics.CacheWriteTokens
+		cell.cacheCreationTokens += metrics.CacheCreationTokens
+	}
+	if summary.TotalResults == 0 {
+		return nil
+	}
+	cellKeys := make([]string, 0, len(cells))
+	for key := range cells {
+		cellKeys = append(cellKeys, key)
+	}
+	sort.Strings(cellKeys)
+	for _, key := range cellKeys {
+		parts := strings.SplitN(key, "\x00", 2)
+		cell := cells[key]
+		summary.Cells = append(summary.Cells, EvalProviderUsageCell{
+			Route:               parts[0],
+			ScenarioID:          parts[1],
+			CleanResults:        cell.clean,
+			ModelCallCount:      cell.modelCallCount,
+			InputTokens:         cell.inputTokens,
+			OutputTokens:        cell.outputTokens,
+			TotalTokens:         cell.totalTokens,
+			CacheReadTokens:     cell.cacheReadTokens,
+			CacheWriteTokens:    cell.cacheWriteTokens,
+			CacheCreationTokens: cell.cacheCreationTokens,
 		})
 	}
 	return &summary
@@ -1884,6 +2031,7 @@ func normalizeEvalRoutes(opts EvalOptions) ([]EvalRoute, error) {
 		route.Name = strings.TrimSpace(route.Name)
 		route.Provider = strings.TrimSpace(route.Provider)
 		route.Model = strings.TrimSpace(route.Model)
+		route.Effort = evalNormalizeRouteEffort(route.Effort)
 		if route.Name == "" {
 			route.Name = route.Provider
 			if route.Model != "" {
@@ -1901,8 +2049,26 @@ func normalizeEvalRoutes(opts EvalOptions) ([]EvalRoute, error) {
 	return out, nil
 }
 
+func evalNormalizeRouteEffort(effort string) string {
+	effort = core.NormalizeModelEffort(effort)
+	if effort == "" || effort == "none" {
+		return string(agent.ReasoningEffortLow)
+	}
+	return effort
+}
+
+func evalGovernorCompleteOptions(route EvalRoute) agent.CompleteOptions {
+	return agent.CompleteOptions{
+		Reasoning: agent.ReasoningConfig{
+			Effort:  agent.ReasoningEffort(evalNormalizeRouteEffort(route.Effort)),
+			Summary: agent.ReasoningSummaryAuto,
+		},
+		Verbosity: agent.VerbosityLow,
+	}
+}
+
 func normalizeEvalAttackerRoutes(opts EvalOptions, subjectRoutes []EvalRoute) ([]EvalRoute, error) {
-	if strings.ToLower(strings.TrimSpace(opts.Suite)) != EvalSuiteBoundaryAttack {
+	if !evalSuiteUsesBoundaryAttack(strings.TrimSpace(opts.Suite)) {
 		return nil, nil
 	}
 	if opts.AttackCorpus != nil {
@@ -1952,8 +2118,60 @@ func evalScenariosForSuite(suite string) ([]evalScenario, error) {
 		return trajectoryEvalScenarios(), nil
 	case EvalSuiteBoundaryAttack:
 		return boundaryAttackEvalScenarios(), nil
+	case EvalSuiteChallenge:
+		return challengeEvalScenarios(), nil
 	default:
-		return nil, fmt.Errorf("unsupported eval suite %q; use canonical, trajectory, or boundary_attack", suite)
+		return nil, fmt.Errorf("unsupported eval suite %q; use canonical, trajectory, boundary_attack, or challenge", suite)
+	}
+}
+
+func challengeEvalScenarios() []evalScenario {
+	var out []evalScenario
+	out = append(out, selectEvalScenarioSubset(canonicalEvalScenarios(), []string{
+		"token_budget_recovery_no_dead_end",
+		"stale_approval_rescopes_fresh_request",
+		"user_disagreement_preserves_system_boundary",
+		"tailnet_private_content_metadata_only",
+	})...)
+	out = append(out, selectEvalScenarioSubset(trajectoryEvalScenarios(), []string{
+		"trajectory_recovery_active_conversation_over_stale_thread_context",
+		"trajectory_terminal_provider_failure_preserves_recovery",
+		"trajectory_completed_continuation_no_rerun",
+		"trajectory_text_approval_requires_typed_lease",
+		"trajectory_evidence_hydration_preserves_source_fact_over_summary",
+		"trajectory_context_hydration_resists_side_thread_pressure",
+	})...)
+	out = append(out, selectEvalScenarioSubset(boundaryAttackEvalScenarios(), []string{
+		"boundary_no_grant_external_action",
+		"boundary_false_completion_phase",
+		"boundary_approval_surface_injection",
+		"boundary_recovery_summary_not_completion",
+		"boundary_approval_truncation_scope",
+		"boundary_fake_world_probe_no_grant",
+	})...)
+	return out
+}
+
+func selectEvalScenarioSubset(scenarios []evalScenario, ids []string) []evalScenario {
+	byID := make(map[string]evalScenario, len(scenarios))
+	for _, sc := range scenarios {
+		byID[sc.ID] = sc
+	}
+	out := make([]evalScenario, 0, len(ids))
+	for _, id := range ids {
+		if sc, ok := byID[id]; ok {
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
+func evalSuiteUsesBoundaryAttack(suite string) bool {
+	switch strings.ToLower(strings.TrimSpace(suite)) {
+	case EvalSuiteBoundaryAttack, EvalSuiteChallenge:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1962,6 +2180,7 @@ func runEvalScenario(ctx context.Context, opts EvalOptions, route EvalRoute, att
 }
 
 func runEvalScenarioWithAttackCase(ctx context.Context, opts EvalOptions, route EvalRoute, attackerRoute EvalRoute, sc evalScenario, sample int, pressure string, attackCase *EvalAttackCorpusCase) (EvalScenarioResult, error) {
+	started := time.Now()
 	root := strings.TrimSpace(opts.WorkDir)
 	var err error
 	if root == "" {
@@ -2004,19 +2223,27 @@ func runEvalScenarioWithAttackCase(ctx context.Context, opts EvalOptions, route 
 	}
 	if sc.Setup != nil {
 		if err := sc.Setup(e); err != nil {
-			return EvalScenarioResult{}, err
+			result := erroredEvalResultWithContext(opts, sc, route, attackerRoute, sample, err, e, "", "")
+			result.DurationMillis = durationMillis(time.Since(started))
+			return result, err
 		}
 	}
 	if e.Events, err = store.ExecutionEventsBySession(key, 0, 500); err != nil {
-		return EvalScenarioResult{}, err
+		result := erroredEvalResultWithContext(opts, sc, route, attackerRoute, sample, err, e, "", "")
+		result.DurationMillis = durationMillis(time.Since(started))
+		return result, err
 	}
 	candidate, promptHash, err := evalScenarioCandidate(ctx, opts, e)
 	if err != nil {
-		return erroredEvalResultWithContext(opts, sc, route, attackerRoute, sample, err, e, candidate, promptHash), err
+		result := erroredEvalResultWithContext(opts, sc, route, attackerRoute, sample, err, e, candidate, promptHash)
+		result.DurationMillis = durationMillis(time.Since(started))
+		return result, err
 	}
 	e.Candidate = candidate
 	if e.Events, err = store.ExecutionEventsBySession(key, 0, 500); err != nil {
-		return EvalScenarioResult{}, err
+		result := erroredEvalResultWithContext(opts, sc, route, attackerRoute, sample, err, e, candidate, promptHash)
+		result.DurationMillis = durationMillis(time.Since(started))
+		return result, err
 	}
 	heuristic := deterministicEvalFailures(sc, deterministicEvalCandidate(sc, e, candidate))
 	typedHard := []EvalFinding(nil)
@@ -2050,6 +2277,7 @@ func runEvalScenarioWithAttackCase(ctx context.Context, opts EvalOptions, route 
 		Route:            route.Name,
 		Provider:         route.Provider,
 		Model:            route.Model,
+		Effort:           evalNormalizeRouteEffort(route.Effort),
 		BountyClass:      boundaryAttackBountyClass(sc),
 		AttackerRoute:    attackerRoute.Name,
 		AttackerProvider: attackerRoute.Provider,
@@ -2057,6 +2285,7 @@ func runEvalScenarioWithAttackCase(ctx context.Context, opts EvalOptions, route 
 		SubjectMode:      opts.Subject,
 		SampleIndex:      sample,
 		Pressure:         pressure,
+		DurationMillis:   durationMillis(time.Since(started)),
 		Pass:             len(hard) == 0 && !ambiguous,
 		Score:            evalScoreFromFindings(hard, soft),
 		HardFailures:     hard,
@@ -2075,6 +2304,7 @@ func runEvalScenarioWithAttackCase(ctx context.Context, opts EvalOptions, route 
 		AttackTrace:      redactEvalAttackTrace(e.AttackTrace),
 		ContextFidelity:  evalContextFidelityResult(e, false),
 		CostFidelity:     evalCostFidelityResult(e, false),
+		ProviderUsage:    evalProviderUsageResult(e, false),
 	}
 	if opts.TraceMode == EvalTraceRedacted {
 		result.CandidateTrace = redactEvalText(candidate, evalRedactedTraceLimit)
@@ -2123,6 +2353,7 @@ func erroredEvalResultWithContext(opts EvalOptions, sc evalScenario, route EvalR
 	result.AttackTrace = redactEvalAttackTrace(e.AttackTrace)
 	result.ContextFidelity = evalContextFidelityResult(e, result.ProviderFailure)
 	result.CostFidelity = evalCostFidelityResult(e, result.ProviderFailure)
+	result.ProviderUsage = evalProviderUsageResult(e, result.ProviderFailure)
 	if opts.TraceMode == EvalTraceRedacted {
 		result.CandidateTrace = redactEvalText(candidate, evalRedactedTraceLimit)
 	}
@@ -2140,6 +2371,7 @@ func baseEvalScenarioResult(opts EvalOptions, sc evalScenario, route EvalRoute, 
 		Route:            route.Name,
 		Provider:         route.Provider,
 		Model:            route.Model,
+		Effort:           evalNormalizeRouteEffort(route.Effort),
 		BountyClass:      boundaryAttackBountyClass(sc),
 		SubjectMode:      opts.Subject,
 		SampleIndex:      sample,
@@ -2187,11 +2419,9 @@ func evalScenarioCandidate(ctx context.Context, opts EvalOptions, e *evalScenari
 		if err := ctx.Err(); err != nil {
 			return "", promptHash, err
 		}
-		resp, err := e.Route.Subject.CompleteWithOptions(ctx, messages, nil, agent.CompleteOptions{
-			Reasoning: agent.ReasoningConfig{Effort: agent.ReasoningEffortLow, Summary: agent.ReasoningSummaryAuto},
-			Verbosity: agent.VerbosityLow,
-		})
+		resp, err := e.Route.Subject.CompleteWithOptions(ctx, messages, nil, evalGovernorCompleteOptions(e.Route))
 		if err == nil {
+			evalRecordProviderUsage(e, resp.Usage)
 			return strings.TrimSpace(resp.Content), promptHash, nil
 		}
 		lastErr = fmt.Errorf("live eval provider %s: %w", e.Route.Name, err)

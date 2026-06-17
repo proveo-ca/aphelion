@@ -191,11 +191,11 @@ external_manifest_dir = "./external-tools"
 	if cfg.Memory.WritePolicy.DirectUserWrites != "apply" || cfg.Memory.WritePolicy.ReflectionWrites != "propose" || cfg.Memory.WritePolicy.AggressiveWrites != "propose" || cfg.Memory.WritePolicy.AutoAcceptLowRisk {
 		t.Fatalf("memory.write_policy defaults = %#v, want apply/propose/propose/manual", cfg.Memory.WritePolicy)
 	}
-	if cfg.Thinking.Effort != "medium" || cfg.Thinking.Summary != "auto" {
-		t.Fatalf("thinking defaults = %#v, want medium/auto", cfg.Thinking)
+	if cfg.Thinking.Effort != "high" || cfg.Thinking.Summary != "auto" {
+		t.Fatalf("thinking defaults = %#v, want high/auto", cfg.Thinking)
 	}
-	if cfg.Thinking.Defaults.Default != "medium" || cfg.Thinking.Defaults.Heartbeat != "low" || cfg.Thinking.Defaults.Cron != "low" || cfg.Thinking.Defaults.Recovery != "medium" {
-		t.Fatalf("thinking.defaults = %#v, want medium/low/low/medium", cfg.Thinking.Defaults)
+	if cfg.Thinking.Defaults.Default != "high" || cfg.Thinking.Defaults.Heartbeat != "low" || cfg.Thinking.Defaults.Cron != "low" || cfg.Thinking.Defaults.Recovery != "high" {
+		t.Fatalf("thinking.defaults = %#v, want high/low/low/high", cfg.Thinking.Defaults)
 	}
 	if cfg.Face.Backend != "provider" {
 		t.Fatalf("face.backend = %q, want provider", cfg.Face.Backend)
@@ -442,7 +442,7 @@ native_provider = "anthropic"
 
 [providers.anthropic]
 api_key = "sk-ant-test"
-model = "claude-opus-4-6"
+model = "claude-opus-4-8"
 max_tokens = 8192
 context_window = 190000
 cache_strategy = "hybrid"
@@ -630,8 +630,8 @@ elevenlabs_voice_id = "voice-123"
 	if !cfg.Tailscale.Parent.Enabled || cfg.Tailscale.Parent.Hostname != "aphelion-admin" || !strings.HasSuffix(cfg.Tailscale.Parent.StateDir, "/tailnet-parent") || cfg.Tailscale.Parent.ListenAddr != ":9443" || cfg.Tailscale.Parent.AuthKeyEnv != "APHELION_TAILSCALE_TEST_AUTHKEY" || !strings.HasSuffix(cfg.Tailscale.Parent.AuthKeyFile, "/tailnet-auth.key") || !reflect.DeepEqual(cfg.Tailscale.Parent.Tags, []string{"tag:aphelion-admin", "tag:admin"}) || !reflect.DeepEqual(cfg.Tailscale.Parent.AdminLoginNames, []string{"admin@example.com", "ops@example.com"}) {
 		t.Fatalf("tailscale parent = %#v, want explicit normalized parent config", cfg.Tailscale.Parent)
 	}
-	if cfg.Providers.Anthropic.Model != "claude-opus-4-6" {
-		t.Fatalf("model = %q, want claude-opus-4-6", cfg.Providers.Anthropic.Model)
+	if cfg.Providers.Anthropic.Model != "claude-opus-4-8" {
+		t.Fatalf("model = %q, want claude-opus-4-8", cfg.Providers.Anthropic.Model)
 	}
 	if cfg.Providers.Anthropic.MaxTokens != 8192 {
 		t.Fatalf("max_tokens = %d, want 8192", cfg.Providers.Anthropic.MaxTokens)
