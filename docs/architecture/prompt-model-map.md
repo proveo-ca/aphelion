@@ -80,6 +80,12 @@ The governor and face prompt builders already render this shape through
 contract blocks. Smaller runtime prompts should follow the same style directly
 instead of accumulating prose instructions.
 
+Prompt cost should scale with changed material, not wall-clock turns. Stable
+governor and face files form the provider-cacheable prefix; volatile awareness,
+delivery mode, evidence pointers/hydration, latest user text, and channel facts
+belong late. Stable prompt files may be fingerprint-cached by runtime/renderer
+assembly, while dynamic files remain reload-every-turn.
+
 ## Workspace Prompt File Map
 
 | File | Live size | Loaded into | Placement | Intended purpose | Review notes |
@@ -130,6 +136,7 @@ turn intimacy into hidden authorization.
 | Configuration decides provider order. | Effective chain is `openai -> anthropic -> openrouter` because OpenAI is configured and live fallback chain is explicit; Gemini/Ollama are available when configured into the chain. | Keep. Do not hardcode Anthropic. |
 | OpenAI has model-level fallback before provider fallback. | `gpt-5.5 -> gpt-5.4 -> gpt-5.4-mini`. | Keep. This matches the GPT 5.5 migration intent. |
 | Post-tool OpenAI/Codex request rejection is provider-specific. | If tool results are already in the history and OpenAI/Codex rejects the synthesis request, skip remaining OpenAI-family entries and try Anthropic, then OpenRouter with the same tool evidence. | Keep. This preserves final synthesis without discarding executed tool work. |
+| Prompt-cache shaping follows provider mechanics. | Anthropic uses explicit cache breakpoints and TTL config; the official OpenAI API uses automatic exact-prefix prompt caching, so the prompt prefix is still kept stable and volatile material stays late. OpenAI-compatible custom endpoints do not inherit that assumption silently. | Keep. Stable prompt order is provider-neutral; cache-control syntax is not. |
 | Governor and face may both use GPT 5.5. | Live governor Codex model is `gpt-5.5`; live persona recipe is `gpt-5.5`. | Keep. Prompt/context, not model name, separates behavior. |
 | Face provider uses persona recipe. | `runtime_recipes.json` sets `persona_model=gpt-5.5`; face provider chain maps this to OpenAI GPT 5.5 and configured fallbacks. | Keep, but add clearer status projection if missing. |
 | Governor effort is separately configurable. | Live recipe sets `governor_effort=xhigh`; applies to interactive and recovery. | Keep, but evaluate whether `xhigh` should remain live default after prompt review. |

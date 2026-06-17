@@ -208,10 +208,7 @@ func (r *Runtime) promptCacheStrategyForExecution(exec pipeline.TurnExecutionCon
 	if r == nil || r.cfg == nil {
 		return ""
 	}
-	if strings.EqualFold(strings.TrimSpace(exec.ProviderName), "anthropic") {
-		return r.cfg.Providers.Anthropic.CacheStrategy
-	}
-	return ""
+	return promptCacheStrategyForProviderConfig(r.cfg, exec.ProviderName)
 }
 
 func (r *Runtime) executeTurnCoordinator(ctx context.Context, input turnCoordinatorExecuteInput) (turnCoordinatorExecuteOutput, error) {
@@ -423,6 +420,7 @@ func (r *Runtime) executeTurnCoordinator(ctx context.Context, input turnCoordina
 		monitorErr = fmt.Errorf("%s: history shrank from %d to %d", firstNonEmpty(strings.TrimSpace(input.InvalidOutputPrefix), "invalid turn output"), len(turnInput), len(outHistory))
 		return out, monitorErr
 	}
+	r.maybeInvalidateStablePromptCacheForToolHistory(input.Scope, outHistory[len(turnInput):])
 
 	turnResult.Media, monitorErr = materializeGeneratedReplyMedia(input.Scope, turnResult.Media)
 	if monitorErr != nil {
