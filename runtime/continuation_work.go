@@ -560,7 +560,13 @@ func (r *Runtime) runReservedApprovedContinuation(ctx context.Context, key sessi
 }
 
 func (r *Runtime) runReservedApprovedWorkContinuation(ctx context.Context, key session.SessionKey, reservation approvedContinuationReservation) error {
-	if r == nil || r.store == nil || r.workExecutor == nil || reservation.WorkRequest == nil {
+	if r == nil || r.store == nil || reservation.WorkRequest == nil {
+		return nil
+	}
+	if reservation.State.VerificationTarget != nil {
+		return r.runReservedWorkOutcomeVerification(ctx, key, reservation)
+	}
+	if r.workExecutor == nil {
 		return nil
 	}
 	req := *reservation.WorkRequest
@@ -588,18 +594,19 @@ func (r *Runtime) runReservedApprovedWorkContinuation(ctx context.Context, key s
 		return nil
 	}
 	if err == nil && result.Recovery == nil && !workResultHasSubstantiveCompletionEvidenceForRequest(req, result) {
-		reconciled, reconciliation := r.reconcileWorkOutcomeAfterMissingEvidence(ctx, key, req, result, workStartedAt, workFinishedAt)
-		result = reconciled
-		if reconciliation.Reconciled {
-			// The reconciled result carries typed evidence; let the normal success path persist and record it once.
-		} else if reconciliation.BlockRetry {
-			cause := reconciliation.Err
+		resolved, resolution := r.resolveWorkOutcomeAfterMissingEvidence(ctx, key, req, result, workStartedAt, workFinishedAt)
+		result = resolved
+		switch resolution.Kind {
+		case workOutcomeResolutionAutoVerified:
+			// The resolved result carries typed evidence; let the normal success path persist and record it once.
+		case workOutcomeResolutionVerificationOfferable, workOutcomeResolutionBlockedUnverified:
+			cause := resolution.Err
 			if cause == nil {
 				cause = errWorkExecutorOutcomeUnverified
 			}
 			artifact := r.persistWorkResultForContinuation(key, req, result, status, cause)
 			payload := workResultPayload(req, result, status, cause)
-			for k, v := range reconciliation.Payload {
+			for k, v := range resolution.Payload {
 				payload[k] = v
 			}
 			if artifact.Ref != "" {
@@ -607,8 +614,11 @@ func (r *Runtime) runReservedApprovedWorkContinuation(ctx context.Context, key s
 			}
 			r.recordExecutionEvent(key, core.ExecutionEventWorkExecutorFailed, "work", "outcome_unverified", payload, time.Now().UTC())
 			r.recordExecutionEvent(key, core.ExecutionEventContinuationBlocked, "continuation", "outcome_unverified", payload, time.Now().UTC())
+			if resolution.VerificationOfferable() {
+				return r.offerWorkOutcomeVerificationApproval(ctx, key, req, result, status, cause, artifact, resolution)
+			}
 			return cause
-		} else {
+		default:
 			err = errWorkExecutorNoCompletionEvidence
 		}
 	}
