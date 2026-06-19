@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -605,6 +606,11 @@ func (r *Runtime) runReservedApprovedWorkContinuation(ctx context.Context, key s
 	result, err := r.workExecutor.Run(ctx, req)
 	workFinishedAt := time.Now().UTC()
 	status := r.workExecutor.Status()
+	_, effectRecordErr := r.recordWorkResultEffectAttempts(key, req, result, err, workStartedAt, workFinishedAt)
+	if effectRecordErr != nil && err == nil {
+		err = effectRecordErr
+	}
+	r.attachEffectAttemptsToWorkResult(key, req, &result)
 	if err == nil && workResultBudgetRecoveryScheduled(result) {
 		artifact := r.persistWorkResultForContinuation(key, req, result, status, nil)
 		payload := workResultPayload(req, result, status, nil)
@@ -630,7 +636,9 @@ func (r *Runtime) runReservedApprovedWorkContinuation(ctx context.Context, key s
 		switch resolution.Kind {
 		case workOutcomeResolutionAutoVerified:
 			// The resolved result carries typed evidence; let the normal success path persist and record it once.
+			r.markEffectAttemptsForRequest(key, req, session.EffectAttemptStatusVerified, "", workFinishedAt)
 		case workOutcomeResolutionVerificationOfferable, workOutcomeResolutionBlockedUnverified:
+			r.markEffectAttemptsForRequest(key, req, session.EffectAttemptStatusUncertain, errWorkExecutorOutcomeUnverified.Error(), workFinishedAt)
 			cause := resolution.Err
 			if cause == nil {
 				cause = errWorkExecutorOutcomeUnverified
@@ -654,13 +662,24 @@ func (r *Runtime) runReservedApprovedWorkContinuation(ctx context.Context, key s
 		}
 	}
 	if err != nil {
+		r.markEffectAttemptsForRequest(key, req, session.EffectAttemptStatusUncertain, err.Error(), workFinishedAt)
 		artifact := r.persistWorkResultForContinuation(key, req, result, status, err)
 		payload := workResultPayload(req, result, status, err)
 		if artifact.Ref != "" {
 			payload["artifact_ref"] = artifact.Ref
 		}
 		r.recordExecutionEvent(key, core.ExecutionEventWorkExecutorFailed, "work", "failed", payload, time.Now().UTC())
-		r.offerWorkFailureRetry(ctx, key, key.ChatID, err)
+		var effectWriteErr effectAttemptRecordError
+		if errors.As(err, &effectWriteErr) {
+			r.recordExecutionEvent(key, core.ExecutionEventContinuationBlocked, "continuation", "effect_attempt_record_failed", payload, time.Now().UTC())
+			return err
+		}
+		if unresolved := r.unresolvedEffectAttemptsForRequest(key, req); len(unresolved) > 0 {
+			payload["effect_attempts_unresolved"] = len(unresolved)
+			r.recordExecutionEvent(key, core.ExecutionEventContinuationBlocked, "continuation", "effect_attempt_unresolved", payload, time.Now().UTC())
+		} else {
+			r.offerWorkFailureRetry(ctx, key, key.ChatID, err)
+		}
 		return err
 	}
 	if strings.TrimSpace(status.FallbackReason) != "" {
