@@ -3,16 +3,50 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/idolum-ai/aphelion/principal"
+	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
 )
 
 func resolveNativeToolPath(scope sandbox.Scope, raw string, access nativePathAccess) (string, error) {
+	return resolveNativeToolPathWithExtraRoots(scope, raw, access, nil)
+}
+
+func resolveNativeToolPathWithReadRoots(scope sandbox.Scope, raw string, access nativePathAccess, extraReadRoots []string) (string, error) {
+	if access != nativePathRead {
+		extraReadRoots = nil
+	}
+	return resolveNativeToolPathWithExtraRoots(scope, raw, access, extraReadRoots)
+}
+
+func (r *Registry) resolveNativeReadToolPath(ctx context.Context, scope sandbox.Scope, p principal.Principal, key session.SessionKey, raw string) (string, error) {
+	return r.resolveNativeReadToolPathForOperation(ctx, scope, p, key, raw, "read_file")
+}
+
+func (r *Registry) resolveNativeReadToolPathForOperation(ctx context.Context, scope sandbox.Scope, p principal.Principal, key session.SessionKey, raw string, operation string) (string, error) {
+	roots, err := r.nativeFileAccessGrantRoots(ctx, scope, p, key, nativePathRead, operation)
+	if err != nil {
+		return "", err
+	}
+	return resolveNativeToolPathWithReadRoots(scope, raw, nativePathRead, roots)
+}
+
+func (r *Registry) resolveNativeWriteToolPath(ctx context.Context, scope sandbox.Scope, p principal.Principal, key session.SessionKey, raw string) (string, error) {
+	roots, err := r.nativeFileAccessGrantRoots(ctx, scope, p, key, nativePathWrite, "write_file")
+	if err != nil {
+		return "", err
+	}
+	return resolveNativeToolPathWithExtraRoots(scope, raw, nativePathWrite, roots)
+}
+
+func resolveNativeToolPathWithExtraRoots(scope sandbox.Scope, raw string, access nativePathAccess, extraRoots []string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", fmt.Errorf("path is required")
@@ -34,6 +68,13 @@ func resolveNativeToolPath(scope sandbox.Scope, raw string, access nativePathAcc
 	allowed, err := nativeAllowedRoots(scope, access)
 	if err != nil {
 		return "", err
+	}
+	if len(extraRoots) > 0 {
+		allowed = append(allowed, extraRoots...)
+		allowed, err = normalizeNativeRoots(allowed)
+		if err != nil {
+			return "", err
+		}
 	}
 	if !pathWithinAnyRoot(target, allowed) {
 		return "", fmt.Errorf("path %q is outside the %s roots for this sandbox profile", raw, access)
@@ -57,10 +98,159 @@ func resolveNativeToolPath(scope sandbox.Scope, raw string, access nativePathAcc
 	return target, nil
 }
 
-func validateNativeWriteParent(scope sandbox.Scope, parent string) error {
+func (r *Registry) nativeFileAccessGrantRoots(ctx context.Context, scope sandbox.Scope, p principal.Principal, key session.SessionKey, access nativePathAccess, operation string) ([]string, error) {
+	if r == nil || r.store == nil || !toolSessionKeyHasIdentity(key) {
+		return nil, nil
+	}
+	if _, err := r.authorityUseRefForGrant(ctx, "file_access", key); err != nil {
+		return nil, nil
+	}
+
+	now := time.Now().UTC()
+	roots := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, principalID := range nativeFileAccessPrincipalIDs(p) {
+		grants, err := r.store.CapabilityGrants(200, session.CapabilityGrantStatusActive, session.CapabilityKindFileAccess, principalID)
+		if err != nil {
+			return nil, err
+		}
+		for _, grant := range grants {
+			grant = session.NormalizeCapabilityGrant(grant)
+			if grant.GrantedTo != principalID || !nativeFileAccessGrantAllows(grant, access, operation) {
+				continue
+			}
+			if !grant.ExpiresAt.IsZero() && !grant.ExpiresAt.After(now) {
+				continue
+			}
+			root, err := nativeCapabilityFileAccessRoot(scope, grant.TargetResource)
+			if err != nil {
+				continue
+			}
+			if _, ok := seen[root]; ok {
+				continue
+			}
+			seen[root] = struct{}{}
+			roots = append(roots, root)
+		}
+	}
+	return normalizeNativeRootsAllowEmpty(roots)
+}
+
+func nativeFileAccessPrincipalIDs(p principal.Principal) []string {
+	candidates := append([]string{}, toolAuthorityPrincipalKeys(p)...)
+	candidates = append(candidates, toolAuthorityPrincipalDisplay(p))
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func nativeFileAccessGrantAllows(grant session.CapabilityGrant, access nativePathAccess, operation string) bool {
+	operation = normalizeToolFileAccessOperation(operation)
+	for _, action := range session.NormalizeCapabilityActions(grant.AllowedActions) {
+		if action == "*" {
+			return true
+		}
+		if access == nativePathWrite {
+			switch action {
+			case "write":
+				return true
+			case "write_file":
+				return operation == "write_file"
+			default:
+				continue
+			}
+		}
+		switch action {
+		case "read":
+			return true
+		case "read_file":
+			if operation == "read_file" {
+				return true
+			}
+		case "list", "list_dir":
+			if operation == "list_dir" {
+				return true
+			}
+		case "search":
+			if operation == "search" {
+				return true
+			}
+		case "inspect":
+			if operation == "list_dir" || operation == "search" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeToolFileAccessOperation(operation string) string {
+	operation = strings.ToLower(strings.TrimSpace(operation))
+	operation = strings.ReplaceAll(operation, "-", "_")
+	switch operation {
+	case "read_file", "list_dir", "search", "write_file":
+		return operation
+	default:
+		return ""
+	}
+}
+
+func nativeCapabilityFileAccessRoot(scope sandbox.Scope, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("file_access target_resource is required")
+	}
+	var root string
+	var err error
+	if filepath.IsAbs(value) || strings.HasPrefix(value, "~") || strings.Contains(value, "{") {
+		root, err = nativeScopedPath(value, scope)
+	} else {
+		base := strings.TrimSpace(scope.WorkingRoot)
+		if base == "" {
+			return "", fmt.Errorf("working root is not configured")
+		}
+		root, err = filepath.Abs(filepath.Clean(filepath.Join(base, value)))
+	}
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("file_access target_resource %q must not be a symlink", value)
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
+		realRoot, err = filepath.Abs(filepath.Clean(realRoot))
+		if err != nil {
+			return "", err
+		}
+		root = realRoot
+	}
+	return root, nil
+}
+
+func validateNativeWriteParent(scope sandbox.Scope, parent string, extraWriteRoots []string) error {
 	allowed, err := nativeAllowedRoots(scope, nativePathWrite)
 	if err != nil {
 		return err
+	}
+	if len(extraWriteRoots) > 0 {
+		allowed = append(allowed, extraWriteRoots...)
+		allowed, err = normalizeNativeRoots(allowed)
+		if err != nil {
+			return err
+		}
 	}
 	realParent, err := filepath.EvalSymlinks(parent)
 	if err != nil {
@@ -79,15 +269,22 @@ func validateNativeWriteParent(scope sandbox.Scope, parent string) error {
 	return nil
 }
 
-func validateNativeWriteParentForCreate(scope sandbox.Scope, parent string) error {
+func validateNativeWriteParentForCreate(scope sandbox.Scope, parent string, extraWriteRoots []string) error {
 	if _, err := os.Stat(parent); err == nil {
-		return validateNativeWriteParent(scope, parent)
+		return validateNativeWriteParent(scope, parent, extraWriteRoots)
 	} else if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("write_file stat parent %q: %w", parent, err)
 	}
 	allowed, err := nativeAllowedRoots(scope, nativePathWrite)
 	if err != nil {
 		return err
+	}
+	if len(extraWriteRoots) > 0 {
+		allowed = append(allowed, extraWriteRoots...)
+		allowed, err = normalizeNativeRoots(allowed)
+		if err != nil {
+			return err
+		}
 	}
 	hidden, _ := nativeHiddenPaths(scope)
 	ancestor := filepath.Clean(parent)
@@ -117,18 +314,9 @@ func validateNativeWriteAncestorForCreate(parent string, ancestor string, allowe
 	if err != nil {
 		return fmt.Errorf("resolve write_file parent ancestor %q: %w", ancestor, err)
 	}
-	if !pathWithinAnyRoot(realAncestor, allowed) {
-		return fmt.Errorf("write_file parent %q resolves outside writable sandbox roots", parent)
-	}
-	if pathWithinAnyRoot(realAncestor, hidden) {
-		return fmt.Errorf("write_file parent %q is hidden by the sandbox profile", parent)
-	}
 	rel, err := filepath.Rel(filepath.Clean(ancestor), filepath.Clean(parent))
 	if err != nil {
 		return fmt.Errorf("resolve write_file parent %q relative to ancestor %q: %w", parent, ancestor, err)
-	}
-	if rel == "." {
-		return nil
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("write_file parent %q escapes existing ancestor %q", parent, ancestor)
@@ -138,6 +326,16 @@ func validateNativeWriteAncestorForCreate(parent string, ancestor string, allowe
 	if err != nil {
 		return fmt.Errorf("resolve write_file parent %q: %w", parent, err)
 	}
+	ancestorAllowed := pathWithinAnyRoot(realAncestor, allowed)
+	if !ancestorAllowed && !nativeWriteCreateParentWithinGrantedRoot(realAncestor, intended, allowed) {
+		return fmt.Errorf("write_file parent %q resolves outside writable sandbox roots", parent)
+	}
+	if pathWithinAnyRoot(realAncestor, hidden) {
+		return fmt.Errorf("write_file parent %q is hidden by the sandbox profile", parent)
+	}
+	if rel == "." {
+		return nil
+	}
 	if !pathWithinAnyRoot(intended, allowed) {
 		return fmt.Errorf("write_file parent %q resolves outside writable sandbox roots", parent)
 	}
@@ -145,6 +343,26 @@ func validateNativeWriteAncestorForCreate(parent string, ancestor string, allowe
 		return fmt.Errorf("write_file parent %q is hidden by the sandbox profile", parent)
 	}
 	return nil
+}
+
+func nativeWriteCreateParentWithinGrantedRoot(realAncestor string, intendedParent string, allowed []string) bool {
+	for _, root := range allowed {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		root, err := filepath.Abs(filepath.Clean(root))
+		if err != nil {
+			continue
+		}
+		if !pathWithinAnyRoot(root, []string{realAncestor}) {
+			continue
+		}
+		if pathWithinAnyRoot(intendedParent, []string{root}) {
+			return true
+		}
+	}
+	return false
 }
 
 func nativeAllowedRoots(scope sandbox.Scope, access nativePathAccess) ([]string, error) {
@@ -238,6 +456,17 @@ func nativeScopedPath(value string, scope sandbox.Scope) (string, error) {
 }
 
 func normalizeNativeRoots(values []string) ([]string, error) {
+	roots, err := normalizeNativeRootsAllowEmpty(values)
+	if err != nil {
+		return nil, err
+	}
+	if len(roots) == 0 {
+		return nil, fmt.Errorf("sandbox profile has no %s roots", "usable")
+	}
+	return roots, nil
+}
+
+func normalizeNativeRootsAllowEmpty(values []string) ([]string, error) {
 	seen := make(map[string]struct{}, len(values))
 	roots := make([]string, 0, len(values))
 	for _, value := range values {
@@ -254,9 +483,6 @@ func normalizeNativeRoots(values []string) ([]string, error) {
 		}
 		seen[abs] = struct{}{}
 		roots = append(roots, abs)
-	}
-	if len(roots) == 0 {
-		return nil, fmt.Errorf("sandbox profile has no %s roots", "usable")
 	}
 	return roots, nil
 }
