@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/idolum-ai/aphelion/commandeffect"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
@@ -37,7 +38,11 @@ func TestRegistryDefinitionsHaveValidJSONParameters(t *testing.T) {
 func (s *stubExecApprover) ConfirmExec(_ context.Context, req ExecApprovalRequest) (ExecApprovalDecision, error) {
 	s.called++
 	s.request = req
-	return ExecApprovalDecision{Approved: s.approved}, nil
+	choice := "deny"
+	if s.approved {
+		choice = "approve"
+	}
+	return ExecApprovalDecision{Approved: s.approved, DecisionID: "decision-stub-exec", Choice: choice}, nil
 }
 
 func TestExecContinuationAuthorityRejectsAutoApprovalWidening(t *testing.T) {
@@ -112,6 +117,425 @@ func TestExecContinuationAuthorityRunsForNonProposalSideEffects(t *testing.T) {
 				t.Fatalf("side-effect file %q stat err = %v, want command not dispatched", tc.path, statErr)
 			}
 		})
+	}
+}
+
+func TestExecRecordsJudgmentUseBeforeDispatch(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 8812, UserID: 1001}
+	registry := NewRegistry(workspace, time.Second).WithSessionStore(store)
+	_, err := registry.executeWithScopeAndPrincipal(
+		context.Background(),
+		"exec",
+		json.RawMessage(`{"command":"touch committed.txt"}`),
+		sandbox.Scope{WorkingRoot: workspace, SharedMemoryRoot: workspace},
+		principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+		key,
+	)
+	if err != nil {
+		t.Fatalf("exec err = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(workspace, "committed.txt")); statErr != nil {
+		t.Fatalf("committed file stat err = %v", statErr)
+	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	if len(uses) != 1 {
+		t.Fatalf("judgment uses = %#v, want one exec dispatch use", uses)
+	}
+	judgments, err := store.JudgmentsByKind(key, "shell_effect_plan", 10)
+	if err != nil {
+		t.Fatalf("JudgmentsByKind(shell_effect_plan) err = %v", err)
+	}
+	if len(judgments) != 1 {
+		t.Fatalf("shell effect judgments = %#v, want one persisted plan judgment", judgments)
+	}
+	use := uses[0]
+	if use.ConsumerID != "tool.exec.dispatch" || use.Consequence != session.JudgmentUseConsequenceExecution || use.Irreversible {
+		t.Fatalf("use = %#v, want reversible exec dispatch use", use)
+	}
+	if len(use.JudgmentRefs) == 0 || use.JudgmentRefs[0] != session.JudgmentRef(judgments[0].ID) {
+		t.Fatalf("judgment refs = %#v, want shell effect judgment ref %q", use.JudgmentRefs, session.JudgmentRef(judgments[0].ID))
+	}
+	if use.ResultRef == "" || !strings.HasPrefix(use.ResultRef, "effect_attempt:") {
+		t.Fatalf("result ref = %q, want effect attempt ref", use.ResultRef)
+	}
+}
+
+func TestExecRecordsDistinctJudgmentUsesForRepeatedInvocations(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 8813, UserID: 1001}
+	registry := NewRegistry(workspace, time.Second).WithSessionStore(store)
+	command := "touch repeated.txt"
+	for i := 1; i <= 2; i++ {
+		ctx := WithToolInvocationRef(context.Background(), ToolInvocationRef{TurnRunID: 77, InvocationID: "repeat-" + strconv.Itoa(i)})
+		if _, err := registry.executeWithScopeAndPrincipal(
+			ctx,
+			"exec",
+			json.RawMessage(`{"command":`+strconv.Quote(command)+`}`),
+			sandbox.Scope{WorkingRoot: workspace, SharedMemoryRoot: workspace},
+			principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+			key,
+		); err != nil {
+			t.Fatalf("exec invocation %d err = %v", i, err)
+		}
+	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	if len(uses) != 2 {
+		t.Fatalf("judgment uses = %#v, want one use per repeated invocation", uses)
+	}
+	resultRefs := map[string]bool{}
+	for _, use := range uses {
+		resultRefs[use.ResultRef] = true
+		if use.TurnRunID != 77 {
+			t.Fatalf("use = %#v, want turn run identity propagated", use)
+		}
+	}
+	if len(resultRefs) != 2 {
+		t.Fatalf("result refs = %#v, want distinct effect attempts for repeated invocations", resultRefs)
+	}
+}
+
+func TestExecPreDispatchUsesCanonicalRepresentativeEffectForAudit(t *testing.T) {
+	t.Parallel()
+
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 88131, UserID: 1001}
+	registry := NewRegistry(t.TempDir(), time.Second).WithSessionStore(store)
+	command := "synthetic workspace write plus high impact storage"
+	ctx := WithToolInvocationRef(context.Background(), ToolInvocationRef{TurnRunID: 78, InvocationID: "mixed-impact"})
+	now := time.Now().UTC()
+	judgment, err := store.RecordJudgment(session.JudgmentInput{
+		Key:                key,
+		TurnRunID:          78,
+		Kind:               session.JudgmentKindShellEffectPlan,
+		SubjectKey:         "exec:" + session.EffectAttemptCommandHash(command),
+		ClaimKey:           "command_effect_plan",
+		InterpreterID:      "commandeffect.plan_command",
+		InputRefs:          []string{session.JudgmentUseRef("command_hash", session.EffectAttemptCommandHash(command))},
+		InputHash:          session.EffectAttemptCommandHash(command),
+		ResultJSON:         `{"effects":["workspace_mutation","high_impact_storage"]}`,
+		DependencyRefs:     []session.JudgmentDependencyRef{{Kind: "command_hash", Ref: session.EffectAttemptCommandHash(command), Role: "subject"}},
+		SourceFaultDomains: []string{"shell_text", "commandeffect_plan_v1"},
+		AsOf:               now,
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("RecordJudgment() err = %v", err)
+	}
+	plan := commandeffect.EffectPlan{
+		Command: command,
+		Effects: []commandeffect.Effect{
+			{Kind: commandeffect.KindWorkspaceMutation, Reason: "workspace write", Command: "touch out", SideEffects: true},
+			{Kind: commandeffect.KindHighImpactStorage, Reason: "high-impact storage command", Command: "dd of=/dev/sda", SideEffects: true},
+		},
+	}
+	if got := commandeffect.RepresentativeEffect(plan); got.Kind != commandeffect.KindHighImpactStorage {
+		t.Fatalf("RepresentativeEffect() = %#v, want high-impact storage", got)
+	}
+	if err := registry.recordExecPreDispatchAttempt(
+		ctx,
+		principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+		key,
+		"exec",
+		command,
+		judgment,
+		plan,
+		execQualificationGround{Kind: "operator_approval", ProposalID: "proposal-mixed-impact", DecisionID: "decision-mixed-impact", Choice: "approve"},
+	); err != nil {
+		t.Fatalf("recordExecPreDispatchAttempt() err = %v", err)
+	}
+	attempts, err := store.EffectAttemptsByTurnRun(key, 78)
+	if err != nil {
+		t.Fatalf("EffectAttemptsByTurnRun() err = %v", err)
+	}
+	if len(attempts) != 1 {
+		t.Fatalf("attempts = %#v, want one pre-dispatch attempt", attempts)
+	}
+	if attempts[0].EffectKind != string(commandeffect.KindHighImpactStorage) {
+		t.Fatalf("attempt effect kind = %q, want canonical representative %q", attempts[0].EffectKind, commandeffect.KindHighImpactStorage)
+	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	if len(uses) != 1 {
+		t.Fatalf("judgment uses = %#v, want one execution use", uses)
+	}
+	use := uses[0]
+	if !use.Irreversible || use.QualificationStatus != session.JudgmentUseQualificationQualified {
+		t.Fatalf("use = %#v, want high-impact representative to require and record qualified irreversible use", use)
+	}
+	var sawHighImpact bool
+	for _, dep := range use.DependencyRefs {
+		if dep.Kind == "effect_kind" && dep.Ref == string(commandeffect.KindHighImpactStorage) {
+			sawHighImpact = true
+		}
+	}
+	if !sawHighImpact {
+		t.Fatalf("dependency refs = %#v, want high-impact effect kind qualification", use.DependencyRefs)
+	}
+}
+
+func TestIrreversibleRawExecEffectsHaveProposalGround(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"git push origin main",
+		"gh pr create --fill",
+		"ssh production.example uptime",
+		"systemctl restart aphelion",
+		"curl https://example.invalid",
+		"python -m pip install example-package",
+		"dd if=/dev/zero of=/tmp/disk.img bs=1 count=0",
+		"psql -c 'drop table users'",
+	} {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			plan := commandeffect.PlanCommand(command)
+			if err := validateExecEffectPlanDispatchable(plan); err != nil {
+				t.Fatalf("PlanCommand(%q) produced non-dispatchable plan: %v", command, err)
+			}
+			effect := commandeffect.RepresentativeEffect(plan)
+			boundaryKind := ""
+			if boundary, ok := commandeffect.BoundaryForPlan(plan); ok {
+				boundaryKind = string(boundary.Kind)
+			}
+			if !execEffectRequiresPreCommitQualification(effect.Kind, effect.Reason, boundaryKind) {
+				t.Fatalf("command %q representative effect = %#v boundary=%q, want irreversible effect for this regression case", command, effect, boundaryKind)
+			}
+			proposal, reason := proposalForCommand(command)
+			if reason == "" || strings.TrimSpace(proposal.ID) != "" || strings.TrimSpace(proposal.Kind) == "" {
+				t.Fatalf("proposalForCommand(%q) = proposal=%#v reason=%q, want fresh operator proposal ground", command, proposal, reason)
+			}
+		})
+	}
+}
+
+func TestExecIrreversibleUseRequiresApprovedProposalGround(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 8814, UserID: 1001}
+	approver := &stubExecApprover{approved: true}
+	registry := NewRegistry(workspace, time.Second).WithSessionStore(store).WithExecApprover(approver)
+	_, err := registry.executeWithScopeAndPrincipal(
+		WithToolInvocationRef(context.Background(), ToolInvocationRef{TurnRunID: 88, InvocationID: "push-approval"}),
+		"exec",
+		json.RawMessage(`{"command":"git push origin main"}`),
+		sandbox.Scope{WorkingRoot: workspace, SharedMemoryRoot: workspace},
+		principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+		key,
+	)
+	if err == nil {
+		t.Fatal("exec err = nil, want git push process failure after approved dispatch")
+	}
+	if approver.called == 0 {
+		t.Fatal("approver was not called for git push")
+	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	if len(uses) != 1 {
+		t.Fatalf("judgment uses = %#v, want one irreversible dispatch use", uses)
+	}
+	judgments, err := store.JudgmentsByKind(key, "shell_effect_plan", 10)
+	if err != nil {
+		t.Fatalf("JudgmentsByKind(shell_effect_plan) err = %v", err)
+	}
+	if len(judgments) != 1 {
+		t.Fatalf("shell effect judgments = %#v, want one persisted plan judgment", judgments)
+	}
+	use := uses[0]
+	if !use.Irreversible || use.QualificationStatus != session.JudgmentUseQualificationQualified {
+		t.Fatalf("use = %#v, want qualified irreversible dispatch use", use)
+	}
+	if len(use.JudgmentRefs) == 0 || use.JudgmentRefs[0] != session.JudgmentRef(judgments[0].ID) {
+		t.Fatalf("judgment refs = %#v, want shell effect judgment ref %q", use.JudgmentRefs, session.JudgmentRef(judgments[0].ID))
+	}
+	var sawProposal, sawOperatorDecision, sawDecorrelated bool
+	for _, dep := range use.DependencyRefs {
+		if dep.Kind == "operation_proposal" && dep.Role == "qualifies" {
+			sawProposal = true
+		}
+		if dep.Kind == "operator_decision" && dep.Role == "qualifies" && dep.Scope == "approve" {
+			sawOperatorDecision = true
+		}
+		if dep.Kind == "decorrelation_decision" && dep.Role == "qualifies" && dep.Scope == "decorrelated" {
+			sawDecorrelated = true
+		}
+	}
+	if !sawProposal || !sawOperatorDecision || !sawDecorrelated {
+		t.Fatalf("dependency refs = %#v, want approved proposal, operator decision, and decorrelation qualification refs", use.DependencyRefs)
+	}
+}
+
+func TestExecIrreversibleUseRejectsCorrelatedQualificationGround(t *testing.T) {
+	t.Parallel()
+
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 8816, UserID: 1001}
+	registry := NewRegistry(t.TempDir(), time.Second).WithSessionStore(store)
+	ctx := WithToolInvocationRef(context.Background(), ToolInvocationRef{TurnRunID: 90, InvocationID: "push-correlated-ground"})
+	now := time.Now().UTC()
+	shellJudgment, err := store.RecordJudgment(session.JudgmentInput{
+		Key:                key,
+		TurnRunID:          90,
+		Kind:               "shell_effect_plan",
+		SubjectKey:         "exec:" + session.EffectAttemptCommandHash("git push origin main"),
+		ClaimKey:           "command_effect_plan",
+		InterpreterID:      "commandeffect.plan_command",
+		InputRefs:          []string{session.JudgmentUseRef("command_hash", session.EffectAttemptCommandHash("git push origin main"))},
+		InputHash:          session.EffectAttemptCommandHash("git push origin main"),
+		ResultJSON:         `{"effect":"git_push"}`,
+		DependencyRefs:     []session.JudgmentDependencyRef{{Kind: "operation_proposal", Ref: "proposal-correlated", Role: "support"}},
+		SourceFaultDomains: []string{"operation_proposal"},
+		AsOf:               now,
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("RecordJudgment() err = %v", err)
+	}
+	err = registry.recordExecPreDispatchAttempt(
+		ctx,
+		principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+		key,
+		"exec",
+		"git push origin main",
+		shellJudgment,
+		commandeffect.PlanCommand("git push origin main"),
+		execQualificationGround{Kind: "operator_approval", ProposalID: "proposal-correlated", DecisionID: "decision-correlated", Choice: "approve"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "not decorrelated") {
+		t.Fatalf("recordExecPreDispatchAttempt() err = %v, want correlated qualification rejection", err)
+	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	if len(uses) != 0 {
+		t.Fatalf("judgment uses = %#v, want no use for correlated qualification ground", uses)
+	}
+}
+
+func TestExecIrreversibleUseRejectsApprovalWithoutDecisionGround(t *testing.T) {
+	t.Parallel()
+
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 8817, UserID: 1001}
+	registry := NewRegistry(t.TempDir(), time.Second).WithSessionStore(store)
+	ctx := WithToolInvocationRef(context.Background(), ToolInvocationRef{TurnRunID: 91, InvocationID: "push-incomplete-approval-ground"})
+	judgment, plan, err := registry.recordShellEffectJudgment(ctx, key, "git push origin main")
+	if err != nil {
+		t.Fatalf("recordShellEffectJudgment() err = %v", err)
+	}
+	err = registry.recordExecPreDispatchAttempt(
+		ctx,
+		principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+		key,
+		"exec",
+		"git push origin main",
+		judgment,
+		plan,
+		execQualificationGround{Kind: "operator_approval", ProposalID: "proposal-incomplete", Choice: "approve"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "approved operator decision") {
+		t.Fatalf("recordExecPreDispatchAttempt() err = %v, want incomplete approval ground rejection", err)
+	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	if len(uses) != 0 {
+		t.Fatalf("judgment uses = %#v, want no use for incomplete approval ground", uses)
+	}
+}
+
+func TestExecIrreversibleUseRejectsContinuationWithoutOperatorApprovalGround(t *testing.T) {
+	t.Parallel()
+
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 8818, UserID: 1001}
+	registry := NewRegistry(t.TempDir(), time.Second).WithSessionStore(store)
+	ctx := WithToolInvocationRef(context.Background(), ToolInvocationRef{TurnRunID: 92, InvocationID: "push-continuation-without-approver"})
+	now := time.Now().UTC()
+	state := continuationExecAuthorityTestState("repo_publication", []string{"git_push", "report_push_evidence"}, false, now)
+	state.ContinuationLease.LeaseClass = session.ContinuationLeaseClassRepoPublication
+	state.ApprovedBy = 0
+	state.ContinuationLease.ApprovedBy = 0
+	ctx = WithContinuationExecAuthority(ctx, state)
+	judgment, plan, err := registry.recordShellEffectJudgment(ctx, key, "git push origin main")
+	if err != nil {
+		t.Fatalf("recordShellEffectJudgment() err = %v", err)
+	}
+	err = registry.recordExecPreDispatchAttempt(
+		ctx,
+		principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+		key,
+		"exec",
+		"git push origin main",
+		judgment,
+		plan,
+		execQualificationGround{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "operator-approved support ref") {
+		t.Fatalf("recordExecPreDispatchAttempt() err = %v, want missing continuation approver ground rejection", err)
+	}
+}
+
+func TestExecIrreversibleUseWithoutGroundIsRejectedBeforeCommitment(t *testing.T) {
+	t.Parallel()
+
+	store := newToolTestStore(t)
+	key := session.SessionKey{ChatID: 8815, UserID: 1001}
+	registry := NewRegistry(t.TempDir(), time.Second).WithSessionStore(store)
+	ctx := WithToolInvocationRef(context.Background(), ToolInvocationRef{TurnRunID: 89, InvocationID: "push-no-ground"})
+	judgment, plan, err := registry.recordShellEffectJudgment(ctx, key, "git push origin main")
+	if err != nil {
+		t.Fatalf("recordShellEffectJudgment() err = %v", err)
+	}
+	err = registry.recordExecPreDispatchAttempt(
+		ctx,
+		principal.Principal{Role: principal.RoleAdmin, TelegramUserID: 1001},
+		key,
+		"exec",
+		"git push origin main",
+		judgment,
+		plan,
+		execQualificationGround{},
+	)
+	if err == nil {
+		t.Fatal("recordExecPreDispatchAttempt() err = nil, want ungrounded irreversible use rejected")
+	}
+	if !strings.Contains(err.Error(), "lacks approved proposal or active continuation authority") {
+		t.Fatalf("recordExecPreDispatchAttempt() err = %v, want missing qualification ground", err)
+	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	if len(uses) != 0 {
+		t.Fatalf("judgment uses = %#v, want no irreversible commitment without qualification ground", uses)
+	}
+	judgments, err := store.JudgmentsByKind(key, "shell_effect_plan", 10)
+	if err != nil {
+		t.Fatalf("JudgmentsByKind(shell_effect_plan) err = %v", err)
+	}
+	if len(judgments) != 1 {
+		t.Fatalf("shell effect judgments = %#v, want rejected irreversible command still interpreted once", judgments)
 	}
 }
 
@@ -792,7 +1216,7 @@ func TestExecCompoundRemoteCopyCommandsDoNotGetSingleApproval(t *testing.T) {
 			if proposal, reason := proposalForCommand(command); reason != "" || strings.TrimSpace(proposal.Kind) != "" {
 				t.Fatalf("proposalForCommand(%q) = kind=%q reason=%q, want no one-boundary proposal", command, proposal.Kind, reason)
 			}
-			if err := validateExecEffectPlanDispatchable(command); err == nil {
+			if err := validateExecEffectPlanDispatchable(commandeffect.PlanCommand(command)); err == nil {
 				t.Fatalf("validateExecEffectPlanDispatchable(%q) = nil, want rejection", command)
 			}
 		})

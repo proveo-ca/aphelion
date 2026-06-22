@@ -82,6 +82,42 @@ func TestReentryRecommendationSweepSurfacesBoundedChoicesAfterTerminalQuietWindo
 	if len(records) != 1 || records[0].Status != session.ReentryRecommendationStatusShown {
 		t.Fatalf("records = %#v, want one shown recommendation", records)
 	}
+	uses, err := store.JudgmentUsesBySession(key, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	var use session.JudgmentUse
+	for _, candidate := range uses {
+		if candidate.ConsumerID == "runtime.reentry_recommendation.presentation" {
+			use = candidate
+			break
+		}
+	}
+	if use.ID == "" {
+		t.Fatalf("judgment uses = %#v, want reentry presentation use", uses)
+	}
+	if use.ConsumerID != "runtime.reentry_recommendation.presentation" || use.Consequence != session.JudgmentUseConsequencePresentation {
+		t.Fatalf("use = %#v, want reentry presentation use", use)
+	}
+	judgments, err := store.JudgmentsByKind(key, "reentry_recommendation_selection", 10)
+	if err != nil {
+		t.Fatalf("JudgmentsByKind(reentry_recommendation_selection) err = %v", err)
+	}
+	if len(judgments) != 1 {
+		t.Fatalf("reentry judgments = %#v, want one selection judgment", judgments)
+	}
+	if len(use.JudgmentRefs) == 0 || use.JudgmentRefs[0] != session.JudgmentRef(judgments[0].ID) {
+		t.Fatalf("judgment refs = %#v, want reentry selection judgment ref %q", use.JudgmentRefs, session.JudgmentRef(judgments[0].ID))
+	}
+	var sawCandidate bool
+	for _, dep := range use.DependencyRefs {
+		if dep.Kind == "reentry_candidate" {
+			sawCandidate = true
+		}
+	}
+	if !sawCandidate {
+		t.Fatalf("dependency refs = %#v, want presented reentry candidate refs", use.DependencyRefs)
+	}
 	events, err := store.ExecutionEventsBySession(key, 0, 100)
 	if err != nil {
 		t.Fatalf("ExecutionEventsBySession() err = %v", err)
@@ -663,6 +699,20 @@ func TestReentryRecommendationSuppressesOperationConflictingWithWorkingObjective
 	}
 	if !budgetRecoveryEventPayloadContains(events, core.ExecutionEventRecoveryCandidateSuppressed, "reason", recoveryCandidateReasonStaleVsWorkingObjective) {
 		t.Fatalf("events = %#v, want stale recovery candidate suppression event", events)
+	}
+	judgments, err := store.JudgmentsByKind(key, "recovery_candidate_arbitration", 10)
+	if err != nil {
+		t.Fatalf("JudgmentsByKind(recovery_candidate_arbitration) err = %v", err)
+	}
+	if len(judgments) != 1 {
+		t.Fatalf("judgments len = %d, want 1: %#v", len(judgments), judgments)
+	}
+	uses, err := store.JudgmentUsesByJudgmentRef(judgments[0].ID, 10)
+	if err != nil {
+		t.Fatalf("JudgmentUsesByJudgmentRef() err = %v", err)
+	}
+	if len(uses) != 1 || uses[0].Consequence != session.JudgmentUseConsequenceRecoverySelection {
+		t.Fatalf("uses = %#v, want one recovery-selection use", uses)
 	}
 }
 

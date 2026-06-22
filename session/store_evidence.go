@@ -28,6 +28,11 @@ func EvidenceIDForSource(sourceKind, sourceRef string) string {
 	return "ev:" + sourceKind + ":" + hex.EncodeToString(sum[:])[:20]
 }
 
+func EvidenceHydrationQueryHash(query string) string {
+	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(strings.TrimSpace(query)), " ")))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func (s *SQLiteStore) UpsertEvidenceObject(input EvidenceObjectInput) (EvidenceObject, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -271,7 +276,105 @@ func (s *SQLiteStore) HydrateEvidence(query EvidenceHydrationQuery) (EvidenceHyd
 		return result, err
 	}
 	result.RunID = runID
+	if err := s.recordEvidenceHydrationJudgmentUse(query, result); err != nil {
+		return result, err
+	}
 	return result, nil
+}
+
+func (s *SQLiteStore) recordEvidenceHydrationJudgmentUse(query EvidenceHydrationQuery, result EvidenceHydrationResult) error {
+	if s == nil || s.db == nil || strings.TrimSpace(result.RunID) == "" {
+		return nil
+	}
+	var deps []JudgmentDependencyRef
+	for _, obj := range result.Selected {
+		deps = append(deps, JudgmentDependencyRef{Kind: "evidence_object", Ref: obj.ID, Role: "admitted", Hash: obj.PayloadHash})
+	}
+	for _, id := range result.MissingEvidenceIDs {
+		deps = append(deps, JudgmentDependencyRef{Kind: "evidence_object", Ref: id, Role: "missing"})
+	}
+	if strings.TrimSpace(query.OperationID) != "" {
+		deps = append(deps, JudgmentDependencyRef{Kind: "operation", Ref: strings.TrimSpace(query.OperationID), Role: "scope"})
+	}
+	judgment, err := s.recordEvidenceHydrationJudgment(query, result, deps)
+	if err != nil {
+		return err
+	}
+	status := JudgmentUseQualificationQualified
+	reason := "evidence admitted into model context"
+	if len(result.Selected) == 0 {
+		status = JudgmentUseQualificationBlocked
+		reason = "no evidence admitted into model context"
+	}
+	judgmentRefs := []string{JudgmentUseRef("evidence_hydration", result.RunID)}
+	if strings.TrimSpace(judgment.ID) != "" {
+		judgmentRefs = append([]string{JudgmentRef(judgment.ID)}, judgmentRefs...)
+	}
+	_, err = s.RecordJudgmentUseCommitment(JudgmentUseInput{
+		Key:                  query.Key,
+		SessionID:            result.SessionID,
+		OperationID:          strings.TrimSpace(query.OperationID),
+		ConsumerID:           ConsumerEvidenceHydrationAdmission,
+		Consequence:          JudgmentUseConsequenceModelContextAdmission,
+		JudgmentRefs:         judgmentRefs,
+		DependencyRefs:       deps,
+		PolicyRef:            "evidence_hydration_selection_v1",
+		ResultRef:            JudgmentUseRef("evidence_hydration", result.RunID),
+		Irreversible:         false,
+		QualificationStatus:  status,
+		ReconciliationStatus: JudgmentUseReconciliationNotRequired,
+		Reason:               reason,
+		CreatedAt:            result.CreatedAt,
+		UpdatedAt:            result.CreatedAt,
+	})
+	return err
+}
+
+func (s *SQLiteStore) recordEvidenceHydrationJudgment(query EvidenceHydrationQuery, result EvidenceHydrationResult, deps []JudgmentDependencyRef) (Judgment, error) {
+	payload := map[string]any{
+		"run_id":                result.RunID,
+		"query_hash":            EvidenceHydrationQueryHash(query.Query),
+		"selected_evidence_ids": evidenceObjectIDs(result.Selected),
+		"missing_evidence_ids":  result.MissingEvidenceIDs,
+		"fallback_used":         result.FallbackUsed,
+		"fallback_reason":       result.FallbackReason,
+		"status":                evidenceHydrationStatus(result),
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return Judgment{}, fmt.Errorf("encode evidence hydration judgment: %w", err)
+	}
+	completeness := JudgmentCompletenessComplete
+	var unknowns []UnknownPredicate
+	if len(result.MissingEvidenceIDs) > 0 {
+		completeness = JudgmentCompletenessPartial
+		unknowns = append(unknowns, UnknownPredicate{Kind: "missing_evidence", Reason: "required evidence was unavailable or out of scope"})
+	}
+	if len(result.Selected) == 0 {
+		completeness = JudgmentCompletenessAbstain
+		unknowns = append(unknowns, UnknownPredicate{Kind: "no_admissible_evidence", Reason: "no evidence was selected for hydration"})
+	}
+	return s.RecordJudgment(JudgmentInput{
+		Key:                query.Key,
+		SessionID:          result.SessionID,
+		OperationID:        strings.TrimSpace(query.OperationID),
+		Kind:               JudgmentKindEvidenceHydrationSelection,
+		SchemaVersion:      "v1",
+		SubjectKey:         "evidence_hydration:" + result.RunID,
+		ClaimKey:           "model_context_evidence_selection",
+		InterpreterID:      "session.hydrate_evidence",
+		InterpreterVersion: "v1",
+		InputRefs:          []string{JudgmentUseRef("evidence_hydration", result.RunID)},
+		InputHash:          EvidenceHydrationQueryHash(query.Query),
+		ResultJSON:         string(raw),
+		Completeness:       completeness,
+		Unknowns:           unknowns,
+		DependencyRefs:     deps,
+		SourceFaultDomains: []string{"evidence_ledger", "evidence_hydration_ranker_v1"},
+		Sensitivity:        "evidence_metadata",
+		AsOf:               result.CreatedAt,
+		CreatedAt:          result.CreatedAt,
+	})
 }
 
 func evidenceObjectAllowedForHydration(obj EvidenceObject, query EvidenceHydrationQuery, sessionID string) bool {

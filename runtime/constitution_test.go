@@ -268,6 +268,7 @@ func TestApplyTurnConstitutionRepairsUngroundedExecutionClaimWithoutBanner(t *te
 	finalText := rt.applyTurnConstitution(
 		context.Background(),
 		key,
+		0,
 		scope,
 		"telegram",
 		"admin",
@@ -340,6 +341,7 @@ func TestApplyTurnConstitutionRepairsUnsupportedContinuationClaim(t *testing.T) 
 	finalText := rt.applyTurnConstitution(
 		context.Background(),
 		key,
+		0,
 		scope,
 		"telegram",
 		"admin",
@@ -419,6 +421,7 @@ func TestApplyTurnConstitutionAllowsContinuationClaimWithActiveLease(t *testing.
 	finalText := rt.applyTurnConstitution(
 		context.Background(),
 		key,
+		0,
 		scope,
 		"telegram",
 		"admin",
@@ -492,6 +495,27 @@ func TestHandleInboundBrokerageConvergesAfterAdaptation(t *testing.T) {
 	}
 	if !strings.Contains(provider.lastGovernorMsgs[1].Content, "- ratification: accept") {
 		t.Fatalf("negotiated brokerage block missing accept: %q", provider.lastGovernorMsgs[1].Content)
+	}
+	key := session.SessionKey{ChatID: 9003, UserID: 0}
+	judgments, err := store.JudgmentsByKind(key, "brokerage_control_flow", 10)
+	if err != nil {
+		t.Fatalf("JudgmentsByKind(brokerage_control_flow) err = %v", err)
+	}
+	if len(judgments) != 1 {
+		t.Fatalf("brokerage judgments = %#v, want one control-flow judgment", judgments)
+	}
+	uses, err := store.JudgmentUsesBySession(key, 20)
+	if err != nil {
+		t.Fatalf("JudgmentUsesBySession() err = %v", err)
+	}
+	var sawUse bool
+	for _, use := range uses {
+		if use.ConsumerID == "runtime.brokerage.control_flow" && use.Consequence == session.JudgmentUseConsequenceControlFlow {
+			sawUse = len(use.JudgmentRefs) > 0 && use.JudgmentRefs[0] == session.JudgmentRef(judgments[0].ID)
+		}
+	}
+	if !sawUse {
+		t.Fatalf("judgment uses = %#v, want brokerage control-flow use of %q", uses, session.JudgmentRef(judgments[0].ID))
 	}
 }
 

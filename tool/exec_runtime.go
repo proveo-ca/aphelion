@@ -178,6 +178,7 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 		return "", fmt.Errorf("exec command is required")
 	}
 
+	approvalGround := execQualificationGround{}
 	workdir, escaped, err := resolveWorkdirForExec(scope.WorkingRoot, in.Workdir)
 	if err != nil {
 		return "", err
@@ -194,6 +195,9 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 		}
 		if r.execApprover == nil {
 			return "", fmt.Errorf("command requires an approved proposal: workspace escape")
+		}
+		if proposal.ID == "" {
+			proposal.ID = generatedOperationID("exec-proposal")
 		}
 		if err := r.persistExecProposalState(key, proposal, session.ProposalStatusPending); err != nil {
 			return "", err
@@ -226,16 +230,29 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 		if err := r.persistExecProposalState(key, proposal, session.ProposalStatusApproved); err != nil {
 			return "", err
 		}
+		approvalGround = execQualificationGround{
+			Kind:       "operator_approval",
+			ProposalID: proposal.ID,
+			DecisionID: decision.DecisionID,
+			Choice:     decision.Choice,
+		}
 	}
-	if err := r.validateContinuationExecAuthority(ctx, in.Command); err != nil {
+	shellJudgment, plan, err := r.recordShellEffectJudgment(ctx, key, in.Command)
+	if err != nil {
 		return "", preDispatchExecError(err)
 	}
-	if err := validateExecEffectPlanDispatchable(in.Command); err != nil {
+	if err := r.validateContinuationExecAuthority(ctx, in.Command, plan); err != nil {
+		return "", preDispatchExecError(err)
+	}
+	if err := validateExecEffectPlanDispatchable(plan); err != nil {
 		return "", preDispatchExecError(err)
 	}
 	if proposal, reason := proposalForCommand(in.Command); reason != "" {
 		if r.execApprover == nil {
 			return "", preDispatchExecError(fmt.Errorf("command requires an approved proposal: %s", reason))
+		}
+		if proposal.ID == "" {
+			proposal.ID = generatedOperationID("exec-proposal")
 		}
 		if err := r.persistExecProposalState(key, proposal, session.ProposalStatusPending); err != nil {
 			return "", err
@@ -268,8 +285,14 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 		if err := r.persistExecProposalState(key, proposal, session.ProposalStatusApproved); err != nil {
 			return "", err
 		}
+		approvalGround = execQualificationGround{
+			Kind:       "operator_approval",
+			ProposalID: proposal.ID,
+			DecisionID: decision.DecisionID,
+			Choice:     decision.Choice,
+		}
 	}
-	if err := r.recordExecPreDispatchAttempt(key, "exec", in.Command); err != nil {
+	if err := r.recordExecPreDispatchAttempt(ctx, p, key, "exec", in.Command, shellJudgment, plan, approvalGround); err != nil {
 		return "", preDispatchExecError(err)
 	}
 
@@ -300,7 +323,57 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 	return out, fmt.Errorf("run command: %w", err)
 }
 
-func (r *Registry) recordExecPreDispatchAttempt(key session.SessionKey, toolName string, command string) error {
+func (r *Registry) recordShellEffectJudgment(ctx context.Context, key session.SessionKey, command string) (session.Judgment, commandeffect.EffectPlan, error) {
+	rawCommand := strings.TrimSpace(command)
+	plan := commandeffect.PlanCommand(rawCommand)
+	if r == nil || r.store == nil || rawCommand == "" {
+		return session.Judgment{}, plan, nil
+	}
+	now := time.Now().UTC()
+	invocationRef := execToolInvocationRef(ctx, now)
+	commandHash := session.EffectAttemptCommandHash(rawCommand)
+	resultJSON, err := json.Marshal(shellEffectPlanJudgmentResult(rawCommand, plan))
+	if err != nil {
+		return session.Judgment{}, plan, fmt.Errorf("encode shell effect judgment: %w", err)
+	}
+	judgment, err := r.store.RecordJudgment(session.JudgmentInput{
+		Key:                key,
+		TurnRunID:          invocationRef.TurnRunID,
+		Kind:               session.JudgmentKindShellEffectPlan,
+		SchemaVersion:      "v1",
+		SubjectKey:         "exec:" + commandHash,
+		ClaimKey:           "command_effect_plan",
+		InterpreterID:      "commandeffect.plan_command",
+		InterpreterVersion: "v1",
+		InputRefs:          []string{session.JudgmentUseRef("command_hash", commandHash)},
+		InputHash:          commandHash,
+		ResultJSON:         string(resultJSON),
+		Completeness:       shellEffectPlanCompleteness(plan),
+		Unknowns:           shellEffectPlanUnknowns(plan),
+		DependencyRefs: []session.JudgmentDependencyRef{
+			{Kind: "command_hash", Ref: commandHash, Role: "subject"},
+		},
+		SourceFaultDomains: []string{"shell_text", "commandeffect_plan_v1"},
+		Sensitivity:        "redacted_command_metadata",
+		AsOf:               now,
+		CreatedAt:          now,
+	})
+	if err != nil {
+		return session.Judgment{}, plan, err
+	}
+	return judgment, plan, nil
+}
+
+type execQualificationGround struct {
+	Kind       string
+	ProposalID string
+	DecisionID string
+	Choice     string
+	LeaseID    string
+	ApprovedBy int64
+}
+
+func (r *Registry) recordExecPreDispatchAttempt(ctx context.Context, p principal.Principal, key session.SessionKey, toolName string, command string, shellJudgment session.Judgment, plan commandeffect.EffectPlan, approvalGround execQualificationGround) error {
 	if r == nil || r.store == nil {
 		return nil
 	}
@@ -308,45 +381,149 @@ func (r *Registry) recordExecPreDispatchAttempt(key session.SessionKey, toolName
 	if rawCommand == "" {
 		return nil
 	}
-	effect := commandeffect.Classify(rawCommand)
+	effect := commandeffect.RepresentativeEffect(plan)
 	if !effect.SideEffects {
 		return nil
 	}
 	safeCommand := session.RedactEvidenceText(commandeffect.NormalizeCommand(rawCommand)).Text
 	boundaryKind := ""
-	if boundary, ok := commandeffect.BoundaryForCommand(rawCommand); ok {
+	if boundary, ok := commandeffect.BoundaryForPlan(plan); ok {
 		boundaryKind = string(boundary.Kind)
 	}
 	now := time.Now().UTC()
-	_, err := r.store.UpsertEffectAttempt(session.EffectAttemptInput{
-		AttemptID:    execPreDispatchAttemptID(key, strings.TrimSpace(toolName), safeCommand),
+	invocationRef := execToolInvocationRef(ctx, now)
+	attemptID := execPreDispatchAttemptID(key, strings.TrimSpace(toolName), safeCommand, invocationRef)
+	attemptInput := session.EffectAttemptInput{
+		AttemptID:    attemptID,
 		Key:          key,
+		TurnRunID:    invocationRef.TurnRunID,
 		Executor:     "tool",
 		Tool:         strings.TrimSpace(toolName),
 		Command:      safeCommand,
 		EffectKind:   string(effect.Kind),
 		EffectReason: effect.Reason,
 		BoundaryKind: boundaryKind,
-		SubjectJSON:  session.RedactEvidenceText(execEffectAttemptSubjectJSON(rawCommand)).Text,
+		SubjectJSON:  session.RedactEvidenceText(execEffectAttemptSubjectJSON(rawCommand, shellJudgment.ID, shellJudgment.ContentHash)).Text,
 		Status:       session.EffectAttemptStatusAttempted,
-		EvidenceRefs: []string{"exec_pre_dispatch"},
+		EvidenceRefs: execEffectAttemptEvidenceRefs(shellJudgment),
 		StartedAt:    now,
 		UpdatedAt:    now,
-	})
+	}
+	irreversible := execEffectRequiresPreCommitQualification(effect.Kind, effect.Reason, boundaryKind)
+	qualification, qualificationReason, qualificationDeps, err := r.qualifyExecJudgmentUse(ctx, p, key, rawCommand, plan, shellJudgment, irreversible, approvalGround)
 	if err != nil {
-		return fmt.Errorf("record exec effect attempt before dispatch: %w", err)
+		return err
+	}
+	useInput := session.JudgmentUseInput{
+		Key:                  key,
+		TurnRunID:            invocationRef.TurnRunID,
+		ConsumerID:           session.ConsumerToolExecDispatch,
+		Consequence:          session.JudgmentUseConsequenceExecution,
+		JudgmentRefs:         execJudgmentRefs(rawCommand, effect.Kind, effect.Reason, shellJudgment),
+		DependencyRefs:       append(execJudgmentDependencyRefs(rawCommand, effect.Kind, effect.Reason, boundaryKind, invocationRef, shellJudgment), qualificationDeps...),
+		PolicyRef:            "exec_pre_dispatch_v1",
+		ResultRef:            session.JudgmentUseRef("effect_attempt", attemptID),
+		Irreversible:         irreversible,
+		QualificationStatus:  qualification,
+		ReconciliationStatus: session.JudgmentUseReconciliationNotRequired,
+		Reason:               qualificationReason,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	_, _, err = r.store.UpsertEffectAttemptWithJudgmentUse(attemptInput, useInput)
+	if err != nil {
+		return fmt.Errorf("record exec judgment use and effect attempt before dispatch: %w", err)
 	}
 	return nil
 }
 
-func execPreDispatchAttemptID(key session.SessionKey, toolName string, command string) string {
-	return session.EffectAttemptID(session.SessionIDForKey(key), 0, "exec_pre_dispatch:"+strings.TrimSpace(toolName), command)
+func execToolInvocationRef(ctx context.Context, now time.Time) ToolInvocationRef {
+	if ref, ok := ToolInvocationRefFromContext(ctx); ok {
+		return ref
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return ToolInvocationRef{InvocationID: fmt.Sprintf("direct:%d", now.UnixNano())}
 }
 
-func execEffectAttemptSubjectJSON(command string) string {
+func execPreDispatchAttemptID(key session.SessionKey, toolName string, command string, ref ToolInvocationRef) string {
+	toolKey := strings.Join([]string{"exec_pre_dispatch", strings.TrimSpace(toolName), strings.TrimSpace(ref.InvocationID)}, ":")
+	return session.EffectAttemptID(session.SessionIDForKey(key), ref.TurnRunID, toolKey, command)
+}
+
+func shellEffectPlanJudgmentResult(command string, plan commandeffect.EffectPlan) map[string]any {
+	effects := make([]map[string]any, 0, len(plan.Effects))
+	for _, effect := range plan.Effects {
+		effects = append(effects, map[string]any{
+			"kind":           string(effect.Kind),
+			"reason":         strings.TrimSpace(effect.Reason),
+			"command":        session.RedactEvidenceText(effect.Command).Text,
+			"git_subcommand": strings.TrimSpace(effect.GitSubcommand),
+			"action":         strings.TrimSpace(effect.Action),
+			"provider":       strings.TrimSpace(effect.Provider),
+			"target":         session.RedactEvidenceText(effect.Target).Text,
+			"subject":        session.RedactEvidenceText(effect.Subject).Text,
+			"side_effects":   effect.SideEffects,
+		})
+	}
+	return map[string]any{
+		"normalized_command":  session.RedactEvidenceText(commandeffect.NormalizeCommand(command)).Text,
+		"command_hash":        session.EffectAttemptCommandHash(command),
+		"effects":             effects,
+		"dynamic":             plan.Dynamic,
+		"dynamic_reason":      strings.TrimSpace(plan.DynamicReason),
+		"multiple_authority":  plan.MultipleAuthorities,
+		"planner_contract_id": "commandeffect_plan_v1",
+	}
+}
+
+func shellEffectPlanCompleteness(plan commandeffect.EffectPlan) session.JudgmentCompleteness {
+	if plan.Dynamic || plan.MultipleAuthorities {
+		return session.JudgmentCompletenessPartial
+	}
+	for _, effect := range plan.Effects {
+		if effect.Kind == commandeffect.KindUnknown {
+			return session.JudgmentCompletenessPartial
+		}
+	}
+	return session.JudgmentCompletenessComplete
+}
+
+func shellEffectPlanUnknowns(plan commandeffect.EffectPlan) []session.UnknownPredicate {
+	var unknowns []session.UnknownPredicate
+	if plan.Dynamic {
+		unknowns = append(unknowns, session.UnknownPredicate{Kind: "dynamic_shell", Target: plan.Command, Reason: plan.DynamicReason})
+	}
+	if plan.MultipleAuthorities {
+		unknowns = append(unknowns, session.UnknownPredicate{Kind: "multiple_authorities", Target: plan.Command, Reason: "command must be split or represented as typed operation"})
+	}
+	for _, effect := range plan.Effects {
+		if effect.Kind == commandeffect.KindUnknown {
+			unknowns = append(unknowns, session.UnknownPredicate{Kind: "unknown_effect", Target: effect.Command, Reason: effect.Reason})
+		}
+	}
+	return unknowns
+}
+
+func execEffectAttemptEvidenceRefs(judgment session.Judgment) []string {
+	refs := []string{"exec_pre_dispatch"}
+	if strings.TrimSpace(judgment.ID) != "" {
+		refs = append(refs, session.JudgmentRef(judgment.ID))
+	}
+	return refs
+}
+
+func execEffectAttemptSubjectJSON(command string, judgmentID string, judgmentHash string) string {
 	payload := map[string]any{
 		"kind":         "exec_command",
 		"command_hash": session.EffectAttemptCommandHash(command),
+	}
+	if strings.TrimSpace(judgmentID) != "" {
+		payload["judgment_id"] = strings.TrimSpace(judgmentID)
+	}
+	if strings.TrimSpace(judgmentHash) != "" {
+		payload["judgment_content_hash"] = strings.TrimSpace(judgmentHash)
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -355,8 +532,205 @@ func execEffectAttemptSubjectJSON(command string) string {
 	return string(raw)
 }
 
-func validateExecEffectPlanDispatchable(command string) error {
-	plan := commandeffect.PlanCommand(command)
+func execJudgmentRefs(command string, kind commandeffect.Kind, reason string, judgment session.Judgment) []string {
+	normalized := commandeffect.NormalizeCommand(command)
+	refs := []string{
+		session.JudgmentUseHashRef("effect_plan", strings.Join([]string{normalized, string(kind), strings.TrimSpace(reason)}, "\x00")),
+		session.JudgmentUseHashRef("command_effect", strings.Join([]string{normalized, string(kind)}, "\x00")),
+	}
+	if strings.TrimSpace(judgment.ID) != "" {
+		refs = append([]string{session.JudgmentRef(judgment.ID)}, refs...)
+	}
+	return refs
+}
+
+func execJudgmentDependencyRefs(command string, kind commandeffect.Kind, reason string, boundaryKind string, invocationRef ToolInvocationRef, judgment session.Judgment) []session.JudgmentDependencyRef {
+	refs := []session.JudgmentDependencyRef{
+		{Kind: "command_hash", Ref: session.EffectAttemptCommandHash(command), Role: "subject"},
+		{Kind: "effect_kind", Ref: string(kind), Role: "qualifies"},
+	}
+	if strings.TrimSpace(judgment.ID) != "" {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "judgment", Ref: judgment.ID, Role: "qualifies", Hash: judgment.ContentHash})
+	}
+	if strings.TrimSpace(reason) != "" {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "effect_reason", Ref: strings.TrimSpace(reason), Role: "qualifies"})
+	}
+	if strings.TrimSpace(boundaryKind) != "" {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "boundary_kind", Ref: strings.TrimSpace(boundaryKind), Role: "qualifies"})
+	}
+	if invocationRef.TurnRunID > 0 {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "turn_run", Ref: fmt.Sprintf("%d", invocationRef.TurnRunID), Role: "scope"})
+	}
+	if strings.TrimSpace(invocationRef.InvocationID) != "" {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "tool_invocation", Ref: strings.TrimSpace(invocationRef.InvocationID), Role: "subject"})
+	}
+	return refs
+}
+
+func execEffectRequiresPreCommitQualification(kind commandeffect.Kind, reason string, boundaryKind string) bool {
+	switch kind {
+	case commandeffect.KindExternal, commandeffect.KindExternalAccount, commandeffect.KindRemoteHost, commandeffect.KindService,
+		commandeffect.KindCapability, commandeffect.KindCredential, commandeffect.KindDatabase, commandeffect.KindHighImpactStorage:
+		return true
+	case commandeffect.KindRepoHistory:
+		return strings.TrimSpace(reason) == commandeffect.ReasonGitPush || strings.TrimSpace(boundaryKind) == string(commandeffect.BoundaryGitPush)
+	default:
+		return false
+	}
+}
+
+func (r *Registry) qualifyExecJudgmentUse(ctx context.Context, _ principal.Principal, _ session.SessionKey, command string, plan commandeffect.EffectPlan, shellJudgment session.Judgment, irreversible bool, approvalGround execQualificationGround) (session.JudgmentUseQualificationStatus, string, []session.JudgmentDependencyRef, error) {
+	if !irreversible {
+		return session.JudgmentUseQualificationQualified, "exec effect plan recorded before dispatch", nil, nil
+	}
+	challenged, err := r.execJudgmentGroundProfile(shellJudgment)
+	if err != nil {
+		return session.JudgmentUseQualificationBlocked, "irreversible exec qualification ground unavailable", nil, err
+	}
+	if strings.TrimSpace(approvalGround.ProposalID) != "" || strings.TrimSpace(approvalGround.DecisionID) != "" {
+		approvalGround.Kind = "operator_approval"
+		if strings.TrimSpace(approvalGround.ProposalID) == "" || strings.TrimSpace(approvalGround.DecisionID) == "" || strings.TrimSpace(approvalGround.Choice) != "approve" {
+			refs := execQualificationGroundRefs(approvalGround, "blocks")
+			return session.JudgmentUseQualificationBlocked, "irreversible exec approval ground is incomplete", refs, fmt.Errorf("irreversible exec approval ground requires approved operator decision")
+		}
+		support := execQualificationSupportProfile(approvalGround)
+		decision := session.DecorrelatedGroundForJudgment(challenged, support)
+		refs := execQualificationDecorrelatedRefs(approvalGround, shellJudgment, decision)
+		if decision.Decorrelated {
+			return session.JudgmentUseQualificationQualified, "irreversible exec qualified by decorrelated operator approval", refs, nil
+		}
+		return session.JudgmentUseQualificationBlocked, "irreversible exec operator approval ground is not decorrelated: " + decision.Reason, refs, fmt.Errorf("irreversible exec operator approval ground is not decorrelated: %s", decision.Reason)
+	}
+	if state, ok := ContinuationExecAuthorityFromContext(ctx); ok {
+		decision := ContinuationExecAuthorityDecisionForPlan(state, command, plan, time.Now().UTC())
+		if decision.Allowed {
+			ground := execQualificationGround{
+				Kind:       "continuation_authority",
+				LeaseID:    strings.TrimSpace(state.ContinuationLease.ID),
+				ProposalID: strings.TrimSpace(firstNonEmptyString(state.ActionProposal.ID, state.ActionProposal.OperationID, state.ContinuationLease.ProposalID)),
+				ApprovedBy: firstNonZeroInt64(state.ContinuationLease.ApprovedBy, state.ApprovedBy),
+			}
+			if ground.LeaseID == "" || ground.ApprovedBy == 0 {
+				refs := execQualificationGroundRefs(ground, "blocks")
+				return session.JudgmentUseQualificationBlocked, "irreversible exec continuation authority lacks operator-approved support ref", refs, fmt.Errorf("irreversible exec continuation authority lacks operator-approved support ref")
+			}
+			support := execQualificationSupportProfile(ground)
+			decorrelation := session.DecorrelatedGroundForJudgment(challenged, support)
+			refs := execQualificationDecorrelatedRefs(ground, shellJudgment, decorrelation)
+			if decorrelation.Decorrelated {
+				return session.JudgmentUseQualificationQualified, "irreversible exec qualified by decorrelated active continuation authority", refs, nil
+			}
+			return session.JudgmentUseQualificationBlocked, "irreversible exec continuation authority ground is not decorrelated: " + decorrelation.Reason, refs, fmt.Errorf("irreversible exec continuation authority ground is not decorrelated: %s", decorrelation.Reason)
+		}
+	}
+	return session.JudgmentUseQualificationBlocked, "irreversible exec lacks decorrelated qualification ground", nil, fmt.Errorf("irreversible exec lacks approved proposal or active continuation authority")
+}
+
+func (r *Registry) execJudgmentGroundProfile(judgment session.Judgment) (session.JudgmentGroundProfile, error) {
+	if strings.TrimSpace(judgment.ID) != "" && r != nil && r.store != nil {
+		return r.store.JudgmentGroundProfile(judgment.ID, 0)
+	}
+	return session.JudgmentGroundProfileForJudgment(judgment), nil
+}
+
+func execQualificationSupportProfile(ground execQualificationGround) session.JudgmentGroundProfile {
+	ground = normalizeExecQualificationGround(ground)
+	refs := execQualificationGroundRefs(ground, "qualifies")
+	sourceDomains := []string{ground.Kind}
+	switch ground.Kind {
+	case "operator_approval":
+		sourceDomains = append(sourceDomains, "operator_approval_event")
+	case "continuation_authority":
+		sourceDomains = append(sourceDomains, "operator_approved_continuation")
+	}
+	externalRef := ""
+	if ground.DecisionID != "" {
+		externalRef = session.JudgmentUseRef("operator_decision", ground.DecisionID)
+	} else if ground.LeaseID != "" {
+		externalRef = session.JudgmentUseRef("continuation_lease", ground.LeaseID)
+	}
+	return session.JudgmentGroundProfile{
+		DependencyRefs:      refs,
+		SourceFaultDomains:  sourceDomains,
+		ExternalEvidenceRef: externalRef,
+	}
+}
+
+func execQualificationDecorrelatedRefs(ground execQualificationGround, shellJudgment session.Judgment, decision session.JudgmentDecorrelatedGroundDecision) []session.JudgmentDependencyRef {
+	ground = normalizeExecQualificationGround(ground)
+	status := "not_decorrelated"
+	if decision.Decorrelated {
+		status = "decorrelated"
+	}
+	seed := strings.Join([]string{
+		strings.TrimSpace(shellJudgment.ID),
+		strings.TrimSpace(ground.Kind),
+		strings.TrimSpace(ground.ProposalID),
+		strings.TrimSpace(ground.DecisionID),
+		strings.TrimSpace(ground.LeaseID),
+		fmt.Sprint(ground.ApprovedBy),
+		status,
+		strings.TrimSpace(decision.Reason),
+		strings.Join(decision.Shared, "|"),
+	}, "\x00")
+	refs := append(execQualificationGroundRefs(ground, "qualifies"),
+		session.JudgmentDependencyRef{Kind: "decorrelation_decision", Ref: session.JudgmentUseHashRef("decorrelation", seed), Role: "qualifies", Scope: status},
+	)
+	for _, shared := range decision.Shared {
+		if strings.TrimSpace(shared) != "" {
+			refs = append(refs, session.JudgmentDependencyRef{Kind: "decorrelation_shared", Ref: strings.TrimSpace(shared), Role: "blocks"})
+		}
+	}
+	return refs
+}
+
+func normalizeExecQualificationGround(ground execQualificationGround) execQualificationGround {
+	ground.Kind = strings.TrimSpace(ground.Kind)
+	ground.ProposalID = strings.TrimSpace(ground.ProposalID)
+	ground.DecisionID = strings.TrimSpace(ground.DecisionID)
+	ground.Choice = strings.TrimSpace(ground.Choice)
+	ground.LeaseID = strings.TrimSpace(ground.LeaseID)
+	return ground
+}
+
+func execQualificationGroundRefs(ground execQualificationGround, role string) []session.JudgmentDependencyRef {
+	ground = normalizeExecQualificationGround(ground)
+	role = strings.TrimSpace(role)
+	var refs []session.JudgmentDependencyRef
+	if ground.ProposalID != "" {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "operation_proposal", Ref: ground.ProposalID, Role: role})
+	}
+	if ground.DecisionID != "" {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "operator_decision", Ref: ground.DecisionID, Role: role, Scope: ground.Choice})
+	}
+	if ground.LeaseID != "" {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "continuation_lease", Ref: ground.LeaseID, Role: role})
+	}
+	if ground.ApprovedBy != 0 {
+		refs = append(refs, session.JudgmentDependencyRef{Kind: "operator_approver", Ref: fmt.Sprint(ground.ApprovedBy), Role: role})
+	}
+	return refs
+}
+
+func firstNonZeroInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func validateExecEffectPlanDispatchable(plan commandeffect.EffectPlan) error {
 	if plan.Dynamic {
 		return fmt.Errorf("dynamic shell command is not dispatchable through raw exec: %s", strings.TrimSpace(plan.DynamicReason))
 	}
@@ -381,12 +755,12 @@ func preDispatchExecError(err error) error {
 	return fmt.Errorf("%w: %v", ErrExecRejectedBeforeDispatch, err)
 }
 
-func (r *Registry) validateContinuationExecAuthority(ctx context.Context, command string) error {
+func (r *Registry) validateContinuationExecAuthority(ctx context.Context, command string, plan commandeffect.EffectPlan) error {
 	state, ok := ContinuationExecAuthorityFromContext(ctx)
 	if !ok {
 		return nil
 	}
-	decision := ContinuationExecAuthorityDecisionForCommand(state, command, time.Now().UTC())
+	decision := ContinuationExecAuthorityDecisionForPlan(state, command, plan, time.Now().UTC())
 	return ContinuationExecAuthorityError(decision)
 }
 

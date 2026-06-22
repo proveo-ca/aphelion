@@ -26,6 +26,11 @@ Aphelion state is intentionally multi-surface.
   `evidence_hydration_runs`) for immutable source snapshots and audited context
   hydration: canonical for evidence-object identity, source provenance, payload
   hash, and hydration history.
+- Judgment ledgers (`judgments`, `judgment_uses`, and
+  `judgment_challenge_events`) for durable interpretations, consequential
+  commitment traces, and append-only challenge/adjudication events: canonical
+  for which interpretation was produced, which consumer used it, and which
+  later events challenged or reconciled it.
 - Telegram ingress offset, accepted-update, and poison-update ledgers:
   operational current-state stores for transport recovery.
 - Telegram work-surface registry in code for startup replay of primary messages,
@@ -56,6 +61,9 @@ Classifications below use the shared truth classes defined in
 | `session.evidence_objects` | canonical | Which immutable source evidence snapshots are available for rehydration, and what source/status/hash do they carry? |
 | `session.evidence_links` | canonical | Which evidence objects were explicitly linked, by what relation and source? |
 | `session.evidence_hydration_runs` | canonical | Which evidence objects were selected or reported missing for a hydration request? |
+| `session.judgments` | canonical | Which durable interpretation did a local surface produce, with which inputs, dependencies, completeness, and content hash? |
+| `session.judgment_uses` | canonical | Which judgment refs were used, by which consumer and policy, to commit an auditable consequence? |
+| `session.judgment_challenge_events` | canonical | Which append-only events challenged, adjudicated, or reconciled a durable judgment? |
 | `session.messages` | canonical | What scene text was recorded for the session? |
 | `messages.floor_content` | canonical | What floor text was captured alongside scene text at message-record time? |
 | `messages.floor_metadata` | canonical | What floor metadata/artifact references were captured alongside scene text at message-record time? |
@@ -121,6 +129,18 @@ Universal evidence ledger note:
 - Startup migration seeds only current session snapshots. Explicit historical
   backfill can record the current value of mutable JSON stores, but it must not
   pretend intermediate states were recovered.
+
+Judgment ledger note:
+
+- `judgments` records selected local interpretations; `judgment_uses` records
+  the consequence committed by a consumer; `judgment_challenge_events` records
+  append-only dissent/adjudication facts. Together they are not a universal
+  belief engine; they are an audit and reconciliation substrate over existing
+  evidence, effect-attempt, hydration, and presentation records.
+- The implemented slices cover shell/Codex execution uses, evidence hydration
+  model-context admission, re-entry presentation, and brokerage control-flow
+  selection. Domain-specific challenge adapters and consequence-specific
+  reconciliation workers remain incremental work.
 
 Curiosity note:
 
