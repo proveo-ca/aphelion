@@ -70,13 +70,12 @@ func (r *Registry) executeWithRoot(ctx context.Context, name string, input json.
 	}, principal.Principal{}, session.SessionKey{})
 }
 
-func (r *Registry) executeWithScopeAndPrincipal(ctx context.Context, name string, input json.RawMessage, scope sandbox.Scope, p principal.Principal, key session.SessionKey) (string, error) {
-	var err error
+func (r *Registry) executeWithScopeAndPrincipal(ctx context.Context, name string, input json.RawMessage, scope sandbox.Scope, p principal.Principal, key session.SessionKey) (out string, err error) {
 	input, err = normalizeToolInput(input)
 	if err != nil {
 		return "", err
 	}
-	authorityGrant, authorityManaged, err := r.requireAuthorityToolAccess(ctx, name, p, key, input)
+	authorityGrant, authorityPermit, authorityManaged, err := r.requireAuthorityToolAccess(ctx, name, p, key, input)
 	if err != nil {
 		return "", err
 	}
@@ -147,7 +146,19 @@ func (r *Registry) executeWithScopeAndPrincipal(ctx context.Context, name string
 						return "", err
 					}
 				}
-				return r.externalExecutor.Execute(ctx, manifest, input, scope, r.runner, r.maxOutputBytes, access)
+				out, err := r.externalExecutor.Execute(ctx, manifest, input, scope, r.runner, r.maxOutputBytes, access)
+				if authorityManaged {
+					status := "completed"
+					errText := ""
+					if err != nil {
+						status = "failed"
+						errText = err.Error()
+					}
+					if recordErr := r.recordAuthorityManagedToolOutcome(authorityPermit, status, errText); recordErr != nil && err == nil {
+						err = recordErr
+					}
+				}
+				return out, err
 			}
 			if err := validateExternalProcessPolicy(manifest); err != nil {
 				return "", err
