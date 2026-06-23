@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/idolum-ai/aphelion/commandeffect"
+	"github.com/idolum-ai/aphelion/interpretation"
 	"github.com/idolum-ai/aphelion/principal"
 	"github.com/idolum-ai/aphelion/session"
 	"github.com/idolum-ai/aphelion/tool/sandbox"
@@ -237,10 +238,8 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 			Choice:     decision.Choice,
 		}
 	}
-	shellJudgment, plan, err := r.recordShellEffectJudgment(ctx, key, in.Command)
-	if err != nil {
-		return "", preDispatchExecError(err)
-	}
+	plan := commandeffect.PlanCommand(strings.TrimSpace(in.Command))
+	var shellJudgment session.Judgment
 	if err := r.validateContinuationExecAuthority(ctx, in.Command, plan); err != nil {
 		return "", preDispatchExecError(err)
 	}
@@ -292,6 +291,10 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 			Choice:     decision.Choice,
 		}
 	}
+	shellJudgment, plan, err = r.recordShellEffectJudgment(ctx, key, in.Command)
+	if err != nil {
+		return "", preDispatchExecError(err)
+	}
 	if err := r.recordExecPreDispatchAttempt(ctx, p, key, "exec", in.Command, shellJudgment, plan, approvalGround); err != nil {
 		return "", preDispatchExecError(err)
 	}
@@ -326,7 +329,13 @@ func (r *Registry) exec(ctx context.Context, input json.RawMessage, scope sandbo
 func (r *Registry) recordShellEffectJudgment(ctx context.Context, key session.SessionKey, command string) (session.Judgment, commandeffect.EffectPlan, error) {
 	rawCommand := strings.TrimSpace(command)
 	plan := commandeffect.PlanCommand(rawCommand)
-	if r == nil || r.store == nil || rawCommand == "" {
+	if rawCommand == "" {
+		return session.Judgment{}, plan, nil
+	}
+	if r == nil || r.store == nil {
+		if commandeffect.RepresentativeEffect(plan).SideEffects {
+			return session.Judgment{}, plan, fmt.Errorf("interpretation store unavailable for side-effecting exec")
+		}
 		return session.Judgment{}, plan, nil
 	}
 	now := time.Now().UTC()
@@ -336,7 +345,7 @@ func (r *Registry) recordShellEffectJudgment(ctx context.Context, key session.Se
 	if err != nil {
 		return session.Judgment{}, plan, fmt.Errorf("encode shell effect judgment: %w", err)
 	}
-	judgment, err := r.store.RecordJudgment(session.JudgmentInput{
+	judgment, err := r.interpretationService().RecordJudgment(session.JudgmentInput{
 		Key:                key,
 		TurnRunID:          invocationRef.TurnRunID,
 		Kind:               session.JudgmentKindShellEffectPlan,
@@ -374,9 +383,6 @@ type execQualificationGround struct {
 }
 
 func (r *Registry) recordExecPreDispatchAttempt(ctx context.Context, p principal.Principal, key session.SessionKey, toolName string, command string, shellJudgment session.Judgment, plan commandeffect.EffectPlan, approvalGround execQualificationGround) error {
-	if r == nil || r.store == nil {
-		return nil
-	}
 	rawCommand := strings.TrimSpace(command)
 	if rawCommand == "" {
 		return nil
@@ -384,6 +390,9 @@ func (r *Registry) recordExecPreDispatchAttempt(ctx context.Context, p principal
 	effect := commandeffect.RepresentativeEffect(plan)
 	if !effect.SideEffects {
 		return nil
+	}
+	if r == nil || r.store == nil {
+		return fmt.Errorf("interpretation store unavailable for side-effecting exec")
 	}
 	safeCommand := session.RedactEvidenceText(commandeffect.NormalizeCommand(rawCommand)).Text
 	boundaryKind := ""
@@ -430,7 +439,7 @@ func (r *Registry) recordExecPreDispatchAttempt(ctx context.Context, p principal
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
-	_, _, err = r.store.UpsertEffectAttemptWithJudgmentUse(attemptInput, useInput)
+	_, _, err = r.interpretationService().RecordEffectAttemptWithUse(attemptInput, useInput)
 	if err != nil {
 		return fmt.Errorf("record exec judgment use and effect attempt before dispatch: %w", err)
 	}
@@ -594,12 +603,15 @@ func (r *Registry) qualifyExecJudgmentUse(ctx context.Context, _ principal.Princ
 			return session.JudgmentUseQualificationBlocked, "irreversible exec approval ground is incomplete", refs, fmt.Errorf("irreversible exec approval ground requires approved operator decision")
 		}
 		support := execQualificationSupportProfile(approvalGround)
-		decision := session.DecorrelatedGroundForJudgment(challenged, support)
-		refs := execQualificationDecorrelatedRefs(approvalGround, shellJudgment, decision)
-		if decision.Decorrelated {
-			return session.JudgmentUseQualificationQualified, "irreversible exec qualified by decorrelated operator approval", refs, nil
-		}
-		return session.JudgmentUseQualificationBlocked, "irreversible exec operator approval ground is not decorrelated: " + decision.Reason, refs, fmt.Errorf("irreversible exec operator approval ground is not decorrelated: %s", decision.Reason)
+		qualification, qualifyErr := r.interpretationService().QualifyDecorrelatedUse(interpretation.DecorrelatedQualificationInput{
+			Irreversible: true,
+			Challenged:   challenged,
+			Support:      support,
+			Qualified:    "irreversible exec qualified by decorrelated operator approval",
+			Blocked:      "irreversible exec operator approval ground is not decorrelated",
+		})
+		refs := execQualificationDecorrelatedRefs(approvalGround, shellJudgment, qualification.Decorrelated)
+		return qualification.Status, qualification.Reason, refs, qualifyErr
 	}
 	if state, ok := ContinuationExecAuthorityFromContext(ctx); ok {
 		decision := ContinuationExecAuthorityDecisionForPlan(state, command, plan, time.Now().UTC())
@@ -615,12 +627,15 @@ func (r *Registry) qualifyExecJudgmentUse(ctx context.Context, _ principal.Princ
 				return session.JudgmentUseQualificationBlocked, "irreversible exec continuation authority lacks operator-approved support ref", refs, fmt.Errorf("irreversible exec continuation authority lacks operator-approved support ref")
 			}
 			support := execQualificationSupportProfile(ground)
-			decorrelation := session.DecorrelatedGroundForJudgment(challenged, support)
-			refs := execQualificationDecorrelatedRefs(ground, shellJudgment, decorrelation)
-			if decorrelation.Decorrelated {
-				return session.JudgmentUseQualificationQualified, "irreversible exec qualified by decorrelated active continuation authority", refs, nil
-			}
-			return session.JudgmentUseQualificationBlocked, "irreversible exec continuation authority ground is not decorrelated: " + decorrelation.Reason, refs, fmt.Errorf("irreversible exec continuation authority ground is not decorrelated: %s", decorrelation.Reason)
+			qualification, qualifyErr := r.interpretationService().QualifyDecorrelatedUse(interpretation.DecorrelatedQualificationInput{
+				Irreversible: true,
+				Challenged:   challenged,
+				Support:      support,
+				Qualified:    "irreversible exec qualified by decorrelated active continuation authority",
+				Blocked:      "irreversible exec continuation authority ground is not decorrelated",
+			})
+			refs := execQualificationDecorrelatedRefs(ground, shellJudgment, qualification.Decorrelated)
+			return qualification.Status, qualification.Reason, refs, qualifyErr
 		}
 	}
 	return session.JudgmentUseQualificationBlocked, "irreversible exec lacks decorrelated qualification ground", nil, fmt.Errorf("irreversible exec lacks approved proposal or active continuation authority")

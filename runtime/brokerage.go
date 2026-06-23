@@ -100,7 +100,11 @@ func (r *Runtime) recordBrokerageControlFlowJudgment(key session.SessionKey, bro
 		completeness = session.JudgmentCompletenessPartial
 		unknowns = append(unknowns, session.UnknownPredicate{Kind: "incomplete_brokerage_contract", Reason: "brokerage did not produce a complete ratified execution contract"})
 	}
-	judgment, err := r.store.RecordJudgment(session.JudgmentInput{
+	service := r.interpretationService()
+	deps := []session.JudgmentDependencyRef{
+		{Kind: "brokerage_proposal", Ref: session.JudgmentUseHashRef("text", brokerage.IdolumNote), Role: "support"},
+	}
+	judgmentInput := session.JudgmentInput{
 		Key:                key,
 		Kind:               session.JudgmentKindBrokerageControlFlow,
 		SchemaVersion:      "v1",
@@ -113,23 +117,17 @@ func (r *Runtime) recordBrokerageControlFlowJudgment(key session.SessionKey, bro
 		ResultJSON:         string(raw),
 		Completeness:       completeness,
 		Unknowns:           unknowns,
-		DependencyRefs: []session.JudgmentDependencyRef{
-			{Kind: "brokerage_proposal", Ref: session.JudgmentUseHashRef("text", brokerage.IdolumNote), Role: "support"},
-		},
+		DependencyRefs:     deps,
 		SourceFaultDomains: []string{"model_brokerage", "pipeline_brokerage_parser_v1"},
 		Sensitivity:        "brokerage_metadata",
 		AsOf:               now,
 		CreatedAt:          now,
-	})
-	if err != nil {
-		return err
 	}
-	_, err = r.store.RecordJudgmentUseCommitment(session.JudgmentUseInput{
+	useInput := session.JudgmentUseInput{
 		Key:                  key,
 		ConsumerID:           session.ConsumerRuntimeBrokerageControlFlow,
 		Consequence:          session.JudgmentUseConsequenceControlFlow,
-		JudgmentRefs:         []string{session.JudgmentRef(judgment.ID)},
-		DependencyRefs:       judgment.DependencyRefs,
+		DependencyRefs:       deps,
 		PolicyRef:            "brokerage_control_flow_v1",
 		ResultRef:            session.JudgmentUseHashRef("brokerage_control_flow", brokerageControlFlowHash(brokerage)),
 		Irreversible:         false,
@@ -138,7 +136,8 @@ func (r *Runtime) recordBrokerageControlFlowJudgment(key session.SessionKey, bro
 		Reason:               "brokerage control-flow contract selected",
 		CreatedAt:            now,
 		UpdatedAt:            now,
-	})
+	}
+	_, _, err = service.RecordJudgmentAndUse(judgmentInput, useInput)
 	return err
 }
 
