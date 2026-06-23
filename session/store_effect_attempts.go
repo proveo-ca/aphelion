@@ -207,7 +207,45 @@ func upsertEffectAttemptTx(tx *sql.Tx, input EffectAttemptInput) (EffectAttempt,
 	if err := markEffectAttemptJudgmentUsesTx(tx, attempt, input.UpdatedAt); err != nil {
 		return EffectAttempt{}, err
 	}
+	if err := maybeRecordEffectAttemptNextActionTx(tx, input.Key, attempt); err != nil {
+		return EffectAttempt{}, err
+	}
 	return attempt, nil
+}
+
+func maybeRecordEffectAttemptNextActionTx(tx *sql.Tx, key SessionKey, attempt EffectAttempt) error {
+	if !EffectAttemptHasSideEffects(attempt) {
+		return nil
+	}
+	switch NormalizeEffectAttemptStatus(attempt.Status) {
+	case EffectAttemptStatusUncertain:
+	case EffectAttemptStatusVerified, EffectAttemptStatusRejected, EffectAttemptStatusSuperseded, EffectAttemptStatusFailed:
+		return resolveNextActionTx(tx, NextActionResolutionInput{
+			Key:         key,
+			Owner:       "effect_attempt",
+			SubjectKind: "effect_attempt",
+			SubjectRef:  attempt.AttemptID,
+			Reason:      "effect_attempt_outcome_resolved",
+			ResolvedAt:  attempt.UpdatedAt,
+		})
+	default:
+		return nil
+	}
+	_, err := recordNextActionTx(tx, NextActionInput{
+		Key:                key,
+		TurnRunID:          attempt.TurnRunID,
+		Owner:              "effect_attempt",
+		State:              NextActionNeedsVerification,
+		SubjectKind:        "effect_attempt",
+		SubjectRef:         attempt.AttemptID,
+		CausalRefs:         []string{JudgmentUseRef("effect_attempt", attempt.AttemptID)},
+		NextAction:         "verify the uncertain side effect before retrying",
+		Verifier:           "effect_attempt_verification",
+		RetryPolicy:        "block_retry_until_verified",
+		OperatorProjection: "This side effect may already have happened. Run bounded verification before retrying the phase.",
+		CreatedAt:          attempt.UpdatedAt,
+	})
+	return err
 }
 
 func markEffectAttemptJudgmentUsesTx(tx *sql.Tx, attempt EffectAttempt, at time.Time) error {
