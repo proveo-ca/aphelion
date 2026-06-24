@@ -13,6 +13,103 @@ import (
 	"github.com/idolum-ai/aphelion/core"
 )
 
+type ChildTaskAdmissionInput struct {
+	AgentID           string
+	ContinuityMessage core.DurableAgentConversationMessage
+	Packet            ChildTaskPacketInput
+	QueuedEvents      []ExecutionEventInput
+	NextAction        *NextActionInput
+	CreatedAt         time.Time
+}
+
+func (s *SQLiteStore) RecordChildTaskAdmission(input ChildTaskAdmissionInput) (ChildTaskPacket, error) {
+	if s == nil || s.db == nil {
+		return ChildTaskPacket{}, fmt.Errorf("child task store unavailable")
+	}
+	input.AgentID = strings.TrimSpace(input.AgentID)
+	input.Packet = NormalizeChildTaskPacketInput(input.Packet)
+	if input.AgentID == "" {
+		return ChildTaskPacket{}, fmt.Errorf("child task admission agent_id is required")
+	}
+	if input.Packet.PacketID == "" {
+		return ChildTaskPacket{}, fmt.Errorf("child task admission packet_id is required")
+	}
+	if input.CreatedAt.IsZero() {
+		input.CreatedAt = input.Packet.CreatedAt
+	}
+	if input.CreatedAt.IsZero() {
+		input.CreatedAt = time.Now().UTC()
+	} else {
+		input.CreatedAt = input.CreatedAt.UTC()
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return ChildTaskPacket{}, fmt.Errorf("begin child task admission tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if existing, ok, err := childTaskPacketByIDTx(tx, input.Packet.PacketID); err != nil {
+		return ChildTaskPacket{}, err
+	} else if ok {
+		if !childTaskPacketMatchesInput(existing, input.Packet) {
+			return ChildTaskPacket{}, fmt.Errorf("child task packet %s already exists with different immutable input", input.Packet.PacketID)
+		}
+		if err := tx.Commit(); err != nil {
+			return ChildTaskPacket{}, fmt.Errorf("commit child task admission replay tx: %w", err)
+		}
+		return existing, nil
+	}
+	state, err := queryDurableAgentState(tx, input.AgentID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return ChildTaskPacket{}, err
+		}
+		state = &core.DurableAgentState{AgentID: input.AgentID}
+	}
+	continuity, err := core.ParseDurableAgentContinuityState(state.StateJSON)
+	if err != nil {
+		return ChildTaskPacket{}, fmt.Errorf("parse child task admission continuity: %w", err)
+	}
+	input.ContinuityMessage.CreatedAt = normalizeTimeOrNow(input.ContinuityMessage.CreatedAt)
+	continuity = continuity.WithConversationMessages(input.ContinuityMessage)
+	raw, err := continuity.Marshal()
+	if err != nil {
+		return ChildTaskPacket{}, fmt.Errorf("marshal child task admission continuity: %w", err)
+	}
+	state.AgentID = input.AgentID
+	state.StateJSON = raw
+	if err := saveDurableAgentRuntimeStateExec(tx, core.DurableAgentRuntimeStateFrom(*state)); err != nil {
+		return ChildTaskPacket{}, err
+	}
+	if err := saveDurableAgentIdentityStateExec(tx, core.DurableAgentIdentityStateFrom(*state)); err != nil {
+		return ChildTaskPacket{}, err
+	}
+	packet, err := recordChildTaskPacketTx(tx, input.Packet)
+	if err != nil {
+		return ChildTaskPacket{}, err
+	}
+	if len(input.QueuedEvents) > 0 {
+		if _, err := appendExecutionEventsTx(tx, input.Packet.Key, input.QueuedEvents); err != nil {
+			return ChildTaskPacket{}, fmt.Errorf("append child task admission events: %w", err)
+		}
+	}
+	if input.NextAction != nil {
+		next := *input.NextAction
+		next.Key = input.Packet.Key
+		next.SubjectKind = "task_packet"
+		next.SubjectRef = input.Packet.PacketID
+		if next.CreatedAt.IsZero() {
+			next.CreatedAt = input.CreatedAt
+		}
+		if _, err := recordNextActionTx(tx, next); err != nil {
+			return ChildTaskPacket{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return ChildTaskPacket{}, fmt.Errorf("commit child task admission tx: %w", err)
+	}
+	return packet, nil
+}
+
 func (s *SQLiteStore) RecordChildTaskPacket(input ChildTaskPacketInput) (ChildTaskPacket, error) {
 	if s == nil || s.db == nil {
 		return ChildTaskPacket{}, fmt.Errorf("child task store unavailable")
@@ -41,6 +138,9 @@ func recordChildTaskPacketTx(tx *sql.Tx, input ChildTaskPacketInput) (ChildTaskP
 	if existing, ok, err := childTaskPacketByIDTx(tx, input.PacketID); err != nil {
 		return ChildTaskPacket{}, err
 	} else if ok {
+		if !childTaskPacketMatchesInput(existing, input) {
+			return ChildTaskPacket{}, fmt.Errorf("child task packet %s already exists with different immutable input", input.PacketID)
+		}
 		return existing, nil
 	}
 	scope := defaultScopeForKey(input.Key)
@@ -55,14 +155,14 @@ func recordChildTaskPacketTx(tx *sql.Tx, input ChildTaskPacketInput) (ChildTaskP
 			packet_id, task_lease_id, agent_id, session_id, chat_id, user_id,
 			scope_kind, scope_id, durable_agent_id, task_kind, status, authority_kind,
 			authority_id, grant_id, request_id, target_resource, required_action,
-			input_json, active_attempt_id, lease_owner, lease_generation, fencing_token,
+			input_json, input_fingerprint, active_attempt_id, lease_owner, lease_generation, fencing_token,
 			lease_expires_at, lease_heartbeat_at, lease_released_at, result_id,
 			created_at, updated_at, terminal_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 0, '', '', '', NULL, '', ?, ?, NULL)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 0, '', '', '', NULL, '', ?, ?, NULL)
 	`, input.PacketID, input.TaskLeaseID, input.AgentID, sessionID, input.Key.ChatID, input.Key.UserID,
 		string(scope.Kind), scope.ID, scope.DurableAgentID, input.TaskKind, string(input.Status), input.AuthorityKind,
 		input.AuthorityID, input.GrantID, input.RequestID, input.TargetResource, input.RequiredAction,
-		inputJSON, createdAt.Format(time.RFC3339Nano), createdAt.Format(time.RFC3339Nano)); err != nil {
+		inputJSON, input.InputFingerprint, createdAt.Format(time.RFC3339Nano), createdAt.Format(time.RFC3339Nano)); err != nil {
 		return ChildTaskPacket{}, fmt.Errorf("insert child task packet %s: %w", input.PacketID, err)
 	}
 	payloadRaw, _ := json.Marshal(map[string]any{
@@ -344,43 +444,72 @@ func (s *SQLiteStore) recordChildTaskResultForTest(input ChildTaskResultInput) (
 }
 
 func (s *SQLiteStore) RecordChildTaskResultAndAdvance(input ChildTaskResultInput, nextAction *NextActionInput, resolvedAt time.Time) (ChildTaskResult, error) {
+	return s.CommitChildTaskOutcome(ChildTaskOutcomeCommitInput{
+		Result:     input,
+		NextAction: nextAction,
+		ResolvedAt: resolvedAt,
+	})
+}
+
+func (s *SQLiteStore) CommitChildTaskOutcome(input ChildTaskOutcomeCommitInput) (ChildTaskResult, error) {
 	if s == nil || s.db == nil {
 		return ChildTaskResult{}, fmt.Errorf("child task store unavailable")
 	}
-	input = NormalizeChildTaskResultInput(input)
+	resultInput := NormalizeChildTaskResultInput(input.Result)
+	resolvedAt := input.ResolvedAt
 	if resolvedAt.IsZero() {
-		resolvedAt = input.CreatedAt
+		resolvedAt = resultInput.CreatedAt
 	}
+	outcomeIntents := make([]ChildTaskOutcomeIntentInput, 0, len(input.OutcomeIntents))
+	for i, intent := range input.OutcomeIntents {
+		intent.PacketID = resultInput.PacketID
+		intent.ResultID = resultInput.ResultID
+		intent.AttemptID = resultInput.AttemptID
+		if intent.Sequence <= 0 {
+			intent.Sequence = (i + 1) * 10
+		}
+		if intent.CreatedAt.IsZero() {
+			intent.CreatedAt = resolvedAt
+		}
+		outcomeIntents = append(outcomeIntents, NormalizeChildTaskOutcomeIntentInput(intent))
+	}
+	resultInput.IntentSetFingerprint = ChildTaskOutcomeIntentSetFingerprint(outcomeIntents)
+	resultInput.ResultFingerprint = ChildTaskResultFingerprint(resultInput)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return ChildTaskResult{}, fmt.Errorf("begin child task result advancement tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	result, created, err := recordChildTaskResultTx(tx, input)
+	result, created, err := recordChildTaskResultTx(tx, resultInput)
 	if err != nil {
 		return ChildTaskResult{}, err
 	}
 	if created {
-		if nextAction == nil {
+		if input.NextAction == nil {
 			if err := resolveNextActionTx(tx, NextActionResolutionInput{
-				Key:         input.Key,
+				Key:         resultInput.Key,
 				Owner:       "child_task",
 				SubjectKind: "task_packet",
-				SubjectRef:  input.PacketID,
+				SubjectRef:  resultInput.PacketID,
 				Reason:      "durable_child_task_result",
 				ResolvedAt:  resolvedAt,
 			}); err != nil {
 				return ChildTaskResult{}, err
 			}
 		} else {
-			next := *nextAction
-			next.Key = input.Key
+			next := *input.NextAction
+			next.Key = resultInput.Key
 			next.SubjectKind = "task_packet"
-			next.SubjectRef = input.PacketID
+			next.SubjectRef = resultInput.PacketID
 			if next.CreatedAt.IsZero() {
 				next.CreatedAt = resolvedAt
 			}
 			if _, err := recordNextActionTx(tx, next); err != nil {
+				return ChildTaskResult{}, err
+			}
+		}
+		for _, intent := range outcomeIntents {
+			if err := recordChildTaskOutcomeIntentTx(tx, intent); err != nil {
 				return ChildTaskResult{}, err
 			}
 		}
@@ -393,9 +522,21 @@ func (s *SQLiteStore) RecordChildTaskResultAndAdvance(input ChildTaskResultInput
 
 func recordChildTaskResultTx(tx *sql.Tx, input ChildTaskResultInput) (ChildTaskResult, bool, error) {
 	input = NormalizeChildTaskResultInput(input)
+	if input.IntentSetFingerprint == "" {
+		input.IntentSetFingerprint = ChildTaskOutcomeIntentSetFingerprint(nil)
+	}
+	if input.ResultFingerprint == "" {
+		input.ResultFingerprint = ChildTaskResultFingerprint(input)
+	}
 	if existing, ok, err := childTaskResultByIDTx(tx, input.ResultID); err != nil {
 		return ChildTaskResult{}, false, err
 	} else if ok {
+		if existing.ResultFingerprint != "" && existing.ResultFingerprint != input.ResultFingerprint {
+			return ChildTaskResult{}, false, fmt.Errorf("child task result %s idempotency conflict: result fingerprint changed", input.ResultID)
+		}
+		if existing.IntentSetFingerprint != "" && input.IntentSetFingerprint != "" && existing.IntentSetFingerprint != input.IntentSetFingerprint {
+			return ChildTaskResult{}, false, fmt.Errorf("child task result %s idempotency conflict: outcome intent set changed", input.ResultID)
+		}
 		return existing, false, nil
 	}
 	packet, ok, err := childTaskPacketByIDTx(tx, input.PacketID)
@@ -428,12 +569,12 @@ func recordChildTaskResultTx(tx *sql.Tx, input ChildTaskResultInput) (ChildTaskR
 			result_id, packet_id, attempt_id, lease_owner, lease_generation, fencing_token,
 			task_lease_id, agent_id, session_id, status,
 			result_kind, summary, blocker_kind, error_text, evidence_refs_json,
-			next_state, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			next_state, result_fingerprint, intent_set_fingerprint, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, input.ResultID, input.PacketID, input.AttemptID, input.LeaseOwner, input.LeaseGeneration, input.FencingToken,
 		input.TaskLeaseID, input.AgentID, sessionID, string(input.Status),
 		input.ResultKind, input.Summary, input.BlockerKind, input.ErrorText, evidenceRefs,
-		string(input.NextState), createdAt.Format(time.RFC3339Nano)); err != nil {
+		string(input.NextState), input.ResultFingerprint, input.IntentSetFingerprint, createdAt.Format(time.RFC3339Nano)); err != nil {
 		return ChildTaskResult{}, false, fmt.Errorf("insert child task result %s: %w", input.ResultID, err)
 	}
 	packetStatus := childTaskPacketStatusForResult(input.Status)
@@ -510,6 +651,346 @@ func recordChildTaskResultTx(tx *sql.Tx, input ChildTaskResultInput) (ChildTaskR
 	return result, true, nil
 }
 
+func recordChildTaskOutcomeIntentTx(tx *sql.Tx, input ChildTaskOutcomeIntentInput) error {
+	input = NormalizeChildTaskOutcomeIntentInput(input)
+	if input.IntentID == "" || input.PacketID == "" || input.ResultID == "" || input.Kind == "" {
+		return fmt.Errorf("child task outcome intent requires intent, packet, result, and kind")
+	}
+	if existing, ok, err := childTaskOutcomeIntentByIDTx(tx, input.IntentID); err != nil {
+		return err
+	} else if ok {
+		if existing.PacketID != input.PacketID ||
+			existing.ResultID != input.ResultID ||
+			existing.AttemptID != input.AttemptID ||
+			existing.Kind != input.Kind ||
+			existing.Sequence != input.Sequence ||
+			strings.TrimSpace(existing.PayloadJSON) != input.PayloadJSON ||
+			strings.TrimSpace(existing.ResultRef) != input.ResultRef ||
+			strings.TrimSpace(existing.IdempotencyKey) != input.IdempotencyKey {
+			return fmt.Errorf("child task outcome intent %s idempotency conflict", input.IntentID)
+		}
+		return nil
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO child_task_outcome_intents(
+			intent_id, packet_id, result_id, attempt_id, kind, status, sequence,
+			payload_json, result_ref, idempotency_key, attempts, last_error,
+			created_at, updated_at, applied_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?, NULL)
+	`, input.IntentID, input.PacketID, input.ResultID, input.AttemptID, string(input.Kind),
+		string(ChildTaskOutcomeIntentPending), input.Sequence, input.PayloadJSON, input.ResultRef, input.IdempotencyKey,
+		input.CreatedAt.Format(time.RFC3339Nano), input.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("insert child task outcome intent %s: %w", input.IntentID, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) PendingChildTaskOutcomeIntents(limit int) ([]ChildTaskOutcomeIntent, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("child task store unavailable")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.Query(childTaskOutcomeIntentSelectSQL()+`
+		WHERE (
+				(status IN (?, ?) AND (next_attempt_at = '' OR next_attempt_at <= ?))
+				OR (status = ? AND lease_expires_at != '' AND lease_expires_at <= ?)
+			)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM child_task_outcome_intents predecessor
+				WHERE predecessor.result_id = child_task_outcome_intents.result_id
+					AND predecessor.sequence < child_task_outcome_intents.sequence
+					AND predecessor.status != ?
+			)
+		ORDER BY updated_at ASC, sequence ASC, intent_id ASC
+		LIMIT ?
+	`, string(ChildTaskOutcomeIntentPending), string(ChildTaskOutcomeIntentRetryable), now,
+		string(ChildTaskOutcomeIntentApplying), now, string(ChildTaskOutcomeIntentApplied), limit)
+	if err != nil {
+		return nil, fmt.Errorf("query pending child task outcome intents: %w", err)
+	}
+	defer rows.Close()
+	var out []ChildTaskOutcomeIntent
+	for rows.Next() {
+		intent, err := scanChildTaskOutcomeIntent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, intent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending child task outcome intents: %w", err)
+	}
+	return out, nil
+}
+
+func (s *SQLiteStore) ChildTaskOutcomeIntentsForResult(resultID string) ([]ChildTaskOutcomeIntent, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("child task store unavailable")
+	}
+	resultID = strings.TrimSpace(resultID)
+	if resultID == "" {
+		return nil, fmt.Errorf("child task outcome result id is required")
+	}
+	rows, err := s.db.Query(childTaskOutcomeIntentSelectSQL()+`
+		WHERE result_id = ?
+		ORDER BY sequence ASC, intent_id ASC
+	`, resultID)
+	if err != nil {
+		return nil, fmt.Errorf("query child task outcome intents for result: %w", err)
+	}
+	defer rows.Close()
+	var out []ChildTaskOutcomeIntent
+	for rows.Next() {
+		intent, err := scanChildTaskOutcomeIntent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, intent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate child task outcome intents for result: %w", err)
+	}
+	return out, nil
+}
+
+func (s *SQLiteStore) ClaimChildTaskOutcomeIntent(input ChildTaskOutcomeIntentClaimInput) (ChildTaskOutcomeIntent, bool, error) {
+	if s == nil || s.db == nil {
+		return ChildTaskOutcomeIntent{}, false, fmt.Errorf("child task store unavailable")
+	}
+	input.IntentID = strings.TrimSpace(input.IntentID)
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	if input.IntentID == "" || input.LeaseOwner == "" {
+		return ChildTaskOutcomeIntent{}, false, fmt.Errorf("child task outcome intent claim requires intent_id and lease_owner")
+	}
+	if input.ClaimedAt.IsZero() {
+		input.ClaimedAt = time.Now().UTC()
+	} else {
+		input.ClaimedAt = input.ClaimedAt.UTC()
+	}
+	if input.LeaseExpiresAt.IsZero() {
+		input.LeaseExpiresAt = input.ClaimedAt.Add(5 * time.Minute)
+	} else {
+		input.LeaseExpiresAt = input.LeaseExpiresAt.UTC()
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return ChildTaskOutcomeIntent{}, false, fmt.Errorf("begin child task outcome intent claim tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	intent, ok, err := childTaskOutcomeIntentByIDTx(tx, input.IntentID)
+	if err != nil || !ok {
+		return ChildTaskOutcomeIntent{}, false, err
+	}
+	nowRaw := input.ClaimedAt.Format(time.RFC3339Nano)
+	leaseExpired := !intent.LeaseExpiresAt.IsZero() && !intent.LeaseExpiresAt.After(input.ClaimedAt)
+	if intent.Status != ChildTaskOutcomeIntentPending && intent.Status != ChildTaskOutcomeIntentRetryable && !(intent.Status == ChildTaskOutcomeIntentApplying && leaseExpired) {
+		return ChildTaskOutcomeIntent{}, false, nil
+	}
+	generation := intent.LeaseGeneration + 1
+	token := ChildTaskOutcomeIntentFencingToken(input.IntentID, input.LeaseOwner, generation)
+	res, err := tx.Exec(`
+		UPDATE child_task_outcome_intents
+		SET status = ?, lease_owner = ?, lease_generation = ?, fencing_token = ?,
+			lease_expires_at = ?, updated_at = ?
+		WHERE intent_id = ?
+			AND (
+				status IN (?, ?)
+				OR (status = ? AND lease_expires_at != '' AND lease_expires_at <= ?)
+			)
+	`, string(ChildTaskOutcomeIntentApplying), input.LeaseOwner, generation, token,
+		input.LeaseExpiresAt.Format(time.RFC3339Nano), nowRaw, input.IntentID,
+		string(ChildTaskOutcomeIntentPending), string(ChildTaskOutcomeIntentRetryable),
+		string(ChildTaskOutcomeIntentApplying), nowRaw)
+	if err != nil {
+		return ChildTaskOutcomeIntent{}, false, fmt.Errorf("claim child task outcome intent: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return ChildTaskOutcomeIntent{}, false, err
+	}
+	if rows == 0 {
+		return ChildTaskOutcomeIntent{}, false, nil
+	}
+	claimed, ok, err := childTaskOutcomeIntentByIDTx(tx, input.IntentID)
+	if err != nil || !ok {
+		return ChildTaskOutcomeIntent{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ChildTaskOutcomeIntent{}, false, fmt.Errorf("commit child task outcome intent claim tx: %w", err)
+	}
+	return claimed, true, nil
+}
+
+func (s *SQLiteStore) CompleteChildTaskOutcomeIntent(input ChildTaskOutcomeIntentCompletionInput) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("child task store unavailable")
+	}
+	input.IntentID = strings.TrimSpace(input.IntentID)
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	input.FencingToken = strings.TrimSpace(input.FencingToken)
+	if input.IntentID == "" || input.LeaseOwner == "" || input.FencingToken == "" || input.LeaseGeneration <= 0 {
+		return fmt.Errorf("child task outcome intent completion requires intent lease identity")
+	}
+	if input.CompletedAt.IsZero() {
+		input.CompletedAt = time.Now().UTC()
+	} else {
+		input.CompletedAt = input.CompletedAt.UTC()
+	}
+	res, err := s.db.Exec(`
+		UPDATE child_task_outcome_intents
+		SET status = ?, updated_at = ?, applied_at = ?, last_error = ''
+		WHERE intent_id = ?
+			AND status = ?
+			AND lease_owner = ?
+			AND lease_generation = ?
+			AND fencing_token = ?
+	`, string(ChildTaskOutcomeIntentApplied), input.CompletedAt.Format(time.RFC3339Nano), input.CompletedAt.Format(time.RFC3339Nano),
+		input.IntentID, string(ChildTaskOutcomeIntentApplying), input.LeaseOwner, input.LeaseGeneration, input.FencingToken)
+	if err != nil {
+		return fmt.Errorf("mark child task outcome intent applied: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err != nil {
+		return err
+	} else if rows == 0 {
+		return fmt.Errorf("child task outcome intent %s was not owned by supplied lease", input.IntentID)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) RetryChildTaskOutcomeIntent(input ChildTaskOutcomeIntentRetryInput) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("child task store unavailable")
+	}
+	input.IntentID = strings.TrimSpace(input.IntentID)
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	input.FencingToken = strings.TrimSpace(input.FencingToken)
+	input.LastError = strings.TrimSpace(input.LastError)
+	if input.IntentID == "" || input.LeaseOwner == "" || input.FencingToken == "" || input.LeaseGeneration <= 0 {
+		return fmt.Errorf("child task outcome intent retry requires intent lease identity")
+	}
+	if input.AttemptedAt.IsZero() {
+		input.AttemptedAt = time.Now().UTC()
+	} else {
+		input.AttemptedAt = input.AttemptedAt.UTC()
+	}
+	if input.NextAttemptAt.IsZero() {
+		input.NextAttemptAt = input.AttemptedAt.Add(30 * time.Second)
+	} else {
+		input.NextAttemptAt = input.NextAttemptAt.UTC()
+	}
+	status := ChildTaskOutcomeIntentRetryable
+	deadLetterAt := any(nil)
+	nextAttemptAt := input.NextAttemptAt.Format(time.RFC3339Nano)
+	if input.DeadLetter {
+		status = ChildTaskOutcomeIntentDeadLetter
+		deadLetterAt = input.AttemptedAt.Format(time.RFC3339Nano)
+		nextAttemptAt = ""
+	}
+	res, err := s.db.Exec(`
+		UPDATE child_task_outcome_intents
+		SET status = ?, attempts = attempts + 1, last_error = ?, updated_at = ?,
+			next_attempt_at = ?, dead_letter_at = ?,
+			lease_owner = '', lease_generation = 0, fencing_token = '', lease_expires_at = ''
+		WHERE intent_id = ?
+			AND status = ?
+			AND lease_owner = ?
+			AND lease_generation = ?
+			AND fencing_token = ?
+	`, string(status), input.LastError, input.AttemptedAt.Format(time.RFC3339Nano),
+		nextAttemptAt, deadLetterAt, input.IntentID, string(ChildTaskOutcomeIntentApplying),
+		input.LeaseOwner, input.LeaseGeneration, input.FencingToken)
+	if err != nil {
+		return fmt.Errorf("mark child task outcome intent failed: %w", err)
+	}
+	if rows, err := res.RowsAffected(); err != nil {
+		return err
+	} else if rows == 0 {
+		return fmt.Errorf("child task outcome intent %s was not owned by supplied lease", input.IntentID)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) MarkChildTaskOutcomeIntentApplied(intentID string, appliedAt time.Time) error {
+	intent, ok, err := s.claimOutcomeIntentForLegacyMark(intentID, appliedAt)
+	if err != nil || !ok {
+		return err
+	}
+	return s.CompleteChildTaskOutcomeIntent(ChildTaskOutcomeIntentCompletionInput{
+		IntentID:        intent.IntentID,
+		LeaseOwner:      intent.LeaseOwner,
+		LeaseGeneration: intent.LeaseGeneration,
+		FencingToken:    intent.FencingToken,
+		CompletedAt:     appliedAt,
+	})
+}
+
+func (s *SQLiteStore) MarkChildTaskOutcomeIntentFailed(intentID string, cause error, failedAt time.Time) error {
+	intent, ok, err := s.claimOutcomeIntentForLegacyMark(intentID, failedAt)
+	if err != nil || !ok {
+		return err
+	}
+	errorText := ""
+	if cause != nil {
+		errorText = strings.TrimSpace(cause.Error())
+	}
+	return s.RetryChildTaskOutcomeIntent(ChildTaskOutcomeIntentRetryInput{
+		IntentID:        intent.IntentID,
+		LeaseOwner:      intent.LeaseOwner,
+		LeaseGeneration: intent.LeaseGeneration,
+		FencingToken:    intent.FencingToken,
+		LastError:       errorText,
+		AttemptedAt:     failedAt,
+		NextAttemptAt:   failedAt.Add(30 * time.Second),
+	})
+}
+
+func (s *SQLiteStore) claimOutcomeIntentForLegacyMark(intentID string, at time.Time) (ChildTaskOutcomeIntent, bool, error) {
+	intentID = strings.TrimSpace(intentID)
+	if intentID == "" {
+		return ChildTaskOutcomeIntent{}, false, fmt.Errorf("child task outcome intent id is required")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	} else {
+		at = at.UTC()
+	}
+	return s.ClaimChildTaskOutcomeIntent(ChildTaskOutcomeIntentClaimInput{
+		IntentID:       intentID,
+		LeaseOwner:     "legacy_mark:" + intentID,
+		ClaimedAt:      at,
+		LeaseExpiresAt: at.Add(5 * time.Minute),
+	})
+}
+
+func childTaskOutcomeIntentByIDTx(queryer interface {
+	QueryRow(query string, args ...any) *sql.Row
+}, intentID string) (ChildTaskOutcomeIntent, bool, error) {
+	intentID = strings.TrimSpace(intentID)
+	if intentID == "" {
+		return ChildTaskOutcomeIntent{}, false, nil
+	}
+	row := queryer.QueryRow(childTaskOutcomeIntentSelectSQL()+` WHERE intent_id = ?`, intentID)
+	intent, err := scanChildTaskOutcomeIntent(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ChildTaskOutcomeIntent{}, false, nil
+	}
+	if err != nil {
+		return ChildTaskOutcomeIntent{}, false, err
+	}
+	return intent, true, nil
+}
+
+func (s *SQLiteStore) ChildTaskOutcomeIntent(intentID string) (ChildTaskOutcomeIntent, bool, error) {
+	if s == nil || s.db == nil {
+		return ChildTaskOutcomeIntent{}, false, nil
+	}
+	return childTaskOutcomeIntentByIDTx(s.db, intentID)
+}
+
 func (s *SQLiteStore) ChildTaskPacket(packetID string) (ChildTaskPacket, bool, error) {
 	if s == nil || s.db == nil {
 		return ChildTaskPacket{}, false, nil
@@ -565,7 +1046,7 @@ func childTaskPacketSelectSQL() string {
 		SELECT packet_id, task_lease_id, agent_id, session_id, chat_id, user_id,
 			scope_kind, scope_id, durable_agent_id, task_kind, status, authority_kind,
 			authority_id, grant_id, request_id, target_resource, required_action,
-			input_json, active_attempt_id, lease_owner, lease_generation, fencing_token,
+			input_json, input_fingerprint, active_attempt_id, lease_owner, lease_generation, fencing_token,
 			lease_expires_at, lease_heartbeat_at, lease_released_at, result_id,
 			created_at, updated_at, terminal_at
 		FROM child_task_packets
@@ -577,8 +1058,18 @@ func childTaskResultSelectSQL() string {
 		SELECT result_id, packet_id, attempt_id, lease_owner, lease_generation, fencing_token,
 			task_lease_id, agent_id, session_id, status,
 			result_kind, summary, blocker_kind, error_text, evidence_refs_json,
-			next_state, created_at
+			next_state, result_fingerprint, intent_set_fingerprint, created_at
 		FROM child_task_results
+	`
+}
+
+func childTaskOutcomeIntentSelectSQL() string {
+	return `
+		SELECT intent_id, packet_id, result_id, attempt_id, kind, status, sequence,
+			payload_json, result_ref, idempotency_key, lease_owner, lease_generation,
+			fencing_token, lease_expires_at, next_attempt_at, attempts, last_error,
+			created_at, updated_at, applied_at, dead_letter_at
+		FROM child_task_outcome_intents
 	`
 }
 
@@ -615,6 +1106,7 @@ func scanChildTaskPacket(scanner interface{ Scan(dest ...any) error }) (ChildTas
 		&packet.TargetResource,
 		&packet.RequiredAction,
 		&packet.InputJSON,
+		&packet.InputFingerprint,
 		&packet.ActiveAttemptID,
 		&packet.LeaseOwner,
 		&packet.LeaseGeneration,
@@ -672,6 +1164,32 @@ func scanChildTaskPacket(scanner interface{ Scan(dest ...any) error }) (ChildTas
 	return packet, nil
 }
 
+func childTaskPacketMatchesInput(packet ChildTaskPacket, input ChildTaskPacketInput) bool {
+	input = NormalizeChildTaskPacketInput(input)
+	if strings.TrimSpace(packet.PacketID) != input.PacketID || strings.TrimSpace(packet.AgentID) != input.AgentID {
+		return false
+	}
+	if strings.TrimSpace(packet.InputFingerprint) != "" && input.InputFingerprint != "" {
+		return strings.TrimSpace(packet.InputFingerprint) == input.InputFingerprint
+	}
+	inputJSON := strings.TrimSpace(input.InputJSON)
+	if inputJSON == "" {
+		inputJSON = "{}"
+	}
+	return strings.TrimSpace(packet.TaskLeaseID) == input.TaskLeaseID &&
+		strings.TrimSpace(packet.AgentID) == input.AgentID &&
+		strings.TrimSpace(packet.SessionID) == SessionIDForKey(input.Key) &&
+		packet.Scope == defaultScopeForKey(input.Key) &&
+		strings.TrimSpace(packet.TaskKind) == input.TaskKind &&
+		strings.TrimSpace(packet.AuthorityKind) == input.AuthorityKind &&
+		strings.TrimSpace(packet.AuthorityID) == input.AuthorityID &&
+		strings.TrimSpace(packet.GrantID) == input.GrantID &&
+		strings.TrimSpace(packet.RequestID) == input.RequestID &&
+		strings.TrimSpace(packet.TargetResource) == input.TargetResource &&
+		strings.TrimSpace(packet.RequiredAction) == input.RequiredAction &&
+		strings.TrimSpace(packet.InputJSON) == inputJSON
+}
+
 func scanChildTaskResult(scanner interface{ Scan(dest ...any) error }) (ChildTaskResult, error) {
 	var (
 		result          ChildTaskResult
@@ -697,6 +1215,8 @@ func scanChildTaskResult(scanner interface{ Scan(dest ...any) error }) (ChildTas
 		&result.ErrorText,
 		&evidenceRefsRaw,
 		&nextStateRaw,
+		&result.ResultFingerprint,
+		&result.IntentSetFingerprint,
 		&createdAtRaw,
 	); err != nil {
 		return ChildTaskResult{}, err
@@ -711,6 +1231,82 @@ func scanChildTaskResult(scanner interface{ Scan(dest ...any) error }) (ChildTas
 	result.EvidenceRefs = evidenceRefs
 	result.CreatedAt = createdAt
 	return result, nil
+}
+
+func scanChildTaskOutcomeIntent(scanner interface{ Scan(dest ...any) error }) (ChildTaskOutcomeIntent, error) {
+	var (
+		intent          ChildTaskOutcomeIntent
+		kindRaw         string
+		statusRaw       string
+		leaseExpiresRaw string
+		nextAttemptRaw  string
+		createdAtRaw    string
+		updatedAtRaw    string
+		appliedAtRaw    sql.NullString
+		deadLetterAtRaw sql.NullString
+	)
+	if err := scanner.Scan(
+		&intent.IntentID,
+		&intent.PacketID,
+		&intent.ResultID,
+		&intent.AttemptID,
+		&kindRaw,
+		&statusRaw,
+		&intent.Sequence,
+		&intent.PayloadJSON,
+		&intent.ResultRef,
+		&intent.IdempotencyKey,
+		&intent.LeaseOwner,
+		&intent.LeaseGeneration,
+		&intent.FencingToken,
+		&leaseExpiresRaw,
+		&nextAttemptRaw,
+		&intent.Attempts,
+		&intent.LastError,
+		&createdAtRaw,
+		&updatedAtRaw,
+		&appliedAtRaw,
+		&deadLetterAtRaw,
+	); err != nil {
+		return ChildTaskOutcomeIntent{}, err
+	}
+	createdAt, err := parseSQLiteTime(createdAtRaw)
+	if err != nil {
+		return ChildTaskOutcomeIntent{}, fmt.Errorf("parse child task outcome intent created_at: %w", err)
+	}
+	updatedAt, err := parseSQLiteTime(updatedAtRaw)
+	if err != nil {
+		return ChildTaskOutcomeIntent{}, fmt.Errorf("parse child task outcome intent updated_at: %w", err)
+	}
+	intent.Kind = ChildTaskOutcomeIntentKind(normalizeEnumValue(kindRaw))
+	intent.Status = ChildTaskOutcomeIntentStatus(normalizeEnumValue(statusRaw))
+	intent.CreatedAt = createdAt
+	intent.UpdatedAt = updatedAt
+	if leaseExpiresAt, err := parseOptionalSQLiteTime(leaseExpiresRaw); err != nil {
+		return ChildTaskOutcomeIntent{}, fmt.Errorf("parse child task outcome intent lease_expires_at: %w", err)
+	} else {
+		intent.LeaseExpiresAt = leaseExpiresAt
+	}
+	if nextAttemptAt, err := parseOptionalSQLiteTime(nextAttemptRaw); err != nil {
+		return ChildTaskOutcomeIntent{}, fmt.Errorf("parse child task outcome intent next_attempt_at: %w", err)
+	} else {
+		intent.NextAttemptAt = nextAttemptAt
+	}
+	if appliedAtRaw.Valid && strings.TrimSpace(appliedAtRaw.String) != "" {
+		appliedAt, err := parseSQLiteTime(appliedAtRaw.String)
+		if err != nil {
+			return ChildTaskOutcomeIntent{}, fmt.Errorf("parse child task outcome intent applied_at: %w", err)
+		}
+		intent.AppliedAt = appliedAt
+	}
+	if deadLetterAtRaw.Valid && strings.TrimSpace(deadLetterAtRaw.String) != "" {
+		deadLetterAt, err := parseSQLiteTime(deadLetterAtRaw.String)
+		if err != nil {
+			return ChildTaskOutcomeIntent{}, fmt.Errorf("parse child task outcome intent dead_letter_at: %w", err)
+		}
+		intent.DeadLetterAt = deadLetterAt
+	}
+	return intent, nil
 }
 
 func childTaskPacketLeaseLive(packet ChildTaskPacket, at time.Time) bool {
@@ -754,4 +1350,11 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeTimeOrNow(t time.Time) time.Time {
+	if t.IsZero() {
+		return time.Now().UTC()
+	}
+	return t.UTC()
 }

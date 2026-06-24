@@ -52,6 +52,42 @@ That consumed lease remains valid only for the specific `execution_run_authority
 record that captured it while active. Revoked, expired, mismatched, or
 session-incompatible leases still fail closed at point of use.
 
+## Durable Child Turn Authorship
+
+Durable-child wakes use the same causal rule at a different layer: a child task
+packet may be executed only by the currently fenced attempt that owns that
+packet.
+
+The child-task saga is:
+
+1. Admission records one compact parent-to-child message, one child task packet,
+   one queued event, and one `waiting_for_child` next action in a single store
+   transition. Packet identity is immutable: replaying the same packet ID is
+   accepted only when the stored input fingerprint matches the new admission.
+2. Runtime claims the packet with a durable attempt lease. A second worker cannot
+   replace a live lease; takeover is allowed only after expiry or explicit
+   release. The running wake keeps the fence alive with heartbeats. Losing the
+   fence cancels the turn context.
+3. The child result, successor next action, and ordered post-outcome intent set
+   are committed together before parent acknowledgements, scheduled-review
+   finalizers, policy-application markers, or other post-outcome effects run.
+   Result replay is value-idempotent: reusing a result ID with different status,
+   summary, fence metadata, successor state, or intent set is an idempotency
+   conflict.
+4. Nonterminal child updates keep the packet open and preserve the parent task
+   message for a later bounded continuation. Parent conversation messages are
+   acknowledged only after a completed result.
+5. Post-outcome intents are a fenced outbox. A worker claims an intent before
+   applying it, applies one typed handler, and then marks the intent `applied`,
+   `retryable`, or `dead_letter`. A crash after the child result commits but
+   before an intent applies leaves repairable durable work, not an ambiguous
+   child result.
+
+This is a durable saga, not a distributed transaction. SQLite transitions own
+packet authorship and outcome truth. External or separately retryable effects
+happen after the outcome is committed and must be idempotent or represented by a
+repairable intent.
+
 ## Effective Authority
 
 For capability-managed tools, the effective authority is:
@@ -140,13 +176,18 @@ boundary where it invokes a capability-managed tool or resource:
 - [`tool/native_file_tools_test.go`](../../tool/native_file_tools_test.go)
 - [`runtime/work_executor_test.go`](../../runtime/work_executor_test.go)
 - [`runtime/execution_authority_continuity_runtime_test.go`](../../runtime/execution_authority_continuity_runtime_test.go)
+- [`runtime/capability_grant_wake_test.go`](../../runtime/capability_grant_wake_test.go)
+- [`session/store_child_tasks_test.go`](../../session/store_child_tasks_test.go)
 - [`durableagent/remote_child_test.go`](../../durableagent/remote_child_test.go)
 
 The first anchor is the conformance matrix seed. The others cover concrete
 regressions around fabricated run authority, native file grants, grant-backed
 file operation audit rows, runtime propagation into native work execution,
 durable group non-tool exposure, scheduled job scoping, and remote child
-review-artifact protocol behavior.
+review-artifact protocol behavior. The child-task anchors cover atomic
+capability-grant wake admission, live fenced lease ownership, heartbeat/release
+semantics, repeated nonterminal attempts, terminal absorption, outcome intents,
+and packet idempotency conflicts.
 
 ## Remaining Integration Debt
 
