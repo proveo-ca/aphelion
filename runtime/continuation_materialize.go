@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,77 @@ import (
 
 func (r *Runtime) MaterializeRequestedApproval(ctx context.Context, key session.SessionKey, msg core.InboundMessage, promptInput string) (bool, error) {
 	return r.materializePendingOperationProposalApproval(ctx, key, msg, promptInput, nil)
+}
+
+func continuationApprovalAlreadyOffered(state session.ContinuationState, store *session.SQLiteStore, key session.SessionKey) (bool, error) {
+	if store == nil {
+		return false, nil
+	}
+	state = session.NormalizeContinuationState(state)
+	leaseID := strings.TrimSpace(state.ContinuationLease.ID)
+	proposalID := strings.TrimSpace(state.ActionProposal.ID)
+	decisionID := strings.TrimSpace(state.DecisionID)
+	afterSeq := int64(0)
+	for {
+		events, err := store.ExecutionEventsBySession(key, afterSeq, 200)
+		if err != nil {
+			return false, err
+		}
+		if len(events) == 0 {
+			return false, nil
+		}
+		for _, event := range events {
+			afterSeq = event.Seq
+			if strings.TrimSpace(event.EventType) != core.ExecutionEventContinuationOffered || strings.TrimSpace(event.Status) != "delivered" {
+				continue
+			}
+			payload := map[string]any{}
+			if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+				continue
+			}
+			if continuationPayloadString(payload, "delivery_status") != "delivered" {
+				continue
+			}
+			if leaseID != "" && continuationPayloadString(payload, "lease_id") == leaseID {
+				return true, nil
+			}
+			if proposalID != "" && continuationPayloadString(payload, "proposal_id") == proposalID {
+				return true, nil
+			}
+			if decisionID != "" && continuationPayloadString(payload, "decision_id") == decisionID {
+				return true, nil
+			}
+		}
+		if len(events) < 200 {
+			return false, nil
+		}
+	}
+}
+
+func continuationPayloadString(payload map[string]any, key string) string {
+	value, ok := payload[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func (r *Runtime) sendAndRecordContinuationOfferLocked(ctx context.Context, key session.SessionKey, msg core.InboundMessage, state session.ContinuationState, text string, source string, payload map[string]any, at time.Time) error {
+	if err := r.sendMaterializedContinuationApprovalLocked(ctx, key, msg, state, text, source); err != nil {
+		return err
+	}
+	if payload == nil {
+		payload = continuationExecutionPayload(state)
+	}
+	payload["delivery_status"] = "delivered"
+	if _, err := r.appendExecutionEvent(key, core.ExecutionEventContinuationOffered, "continuation", "delivered", payload, at); err != nil {
+		return fmt.Errorf("record delivered continuation offer: %w", err)
+	}
+	return nil
 }
 
 func (r *Runtime) materializePendingOperationProposalApproval(ctx context.Context, key session.SessionKey, msg core.InboundMessage, promptInput string, result *turn.Result) (bool, error) {
@@ -153,9 +225,8 @@ func (r *Runtime) materializePendingOperationProposalApprovalLocked(ctx context.
 		payload["materialized_from"] = "operation_phase_required_capability"
 		payload["phase_plan_id"] = strings.TrimSpace(opState.PhasePlan.ID)
 		payload["phase_id"] = strings.TrimSpace(phase.ID)
-		r.recordExecutionEvent(key, core.ExecutionEventContinuationOffered, "continuation", "pending", payload, now)
 		r.recordContinuationBundleNarrowing(key, opState, []session.OperationPhase{phase}, state, "operation_phase_required_capability", now)
-		if err := r.sendMaterializedContinuationApprovalLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_phase_required_capability"); err != nil {
+		if err := r.sendAndRecordContinuationOfferLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_phase_required_capability", payload, now); err != nil {
 			return false, fmt.Errorf("send required-capability operation phase continuation approval: %w", err)
 		}
 		return true, nil
@@ -188,9 +259,8 @@ func (r *Runtime) materializePendingOperationProposalApprovalLocked(ctx context.
 		payload := continuationExecutionPayload(state)
 		payload["materialized_from"] = "operation_plan_lease"
 		payload["plan_lease_id"] = strings.TrimSpace(opState.PlanLease.ID)
-		r.recordExecutionEvent(key, core.ExecutionEventContinuationOffered, "continuation", "pending", payload, now)
 		r.recordContinuationBundleNarrowing(key, opState, operationPlanLeasePhasesFromOperation(opState, opState.PlanLease), state, "operation_plan_lease", now)
-		if err := r.sendMaterializedContinuationApprovalLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_plan_lease"); err != nil {
+		if err := r.sendAndRecordContinuationOfferLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_plan_lease", payload, now); err != nil {
 			return false, fmt.Errorf("send operation plan lease continuation approval: %w", err)
 		}
 		return true, nil
@@ -225,9 +295,8 @@ func (r *Runtime) materializePendingOperationProposalApprovalLocked(ctx context.
 			payload["materialized_from"] = "operation_plan_lease"
 			payload["plan_lease_id"] = strings.TrimSpace(opState.PlanLease.ID)
 			payload["synthesized_from_phase_plan"] = true
-			r.recordExecutionEvent(key, core.ExecutionEventContinuationOffered, "continuation", "pending", payload, now)
 			r.recordContinuationBundleNarrowing(key, opState, operationPlanLeasePhasesFromOperation(opState, opState.PlanLease), state, "operation_plan_lease", now)
-			if err := r.sendMaterializedContinuationApprovalLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_plan_lease"); err != nil {
+			if err := r.sendAndRecordContinuationOfferLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_plan_lease", payload, now); err != nil {
 				return false, fmt.Errorf("send synthesized operation plan lease continuation approval: %w", err)
 			}
 			return true, nil
@@ -264,8 +333,7 @@ func (r *Runtime) materializePendingOperationProposalApprovalLocked(ctx context.
 		payload["materialized_from"] = "operation_phase_bundle"
 		payload["phase_plan_id"] = strings.TrimSpace(opState.PhasePlan.ID)
 		payload["bundle_phase_count"] = len(bundle)
-		r.recordExecutionEvent(key, core.ExecutionEventContinuationOffered, "continuation", "pending", payload, now)
-		if err := r.sendMaterializedContinuationApprovalLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_phase_bundle"); err != nil {
+		if err := r.sendAndRecordContinuationOfferLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_phase_bundle", payload, now); err != nil {
 			return false, fmt.Errorf("send operation phase bundle continuation approval: %w", err)
 		}
 		return true, nil
@@ -321,9 +389,8 @@ func (r *Runtime) materializePendingOperationProposalApprovalLocked(ctx context.
 		payload["materialized_from"] = "operation_phase_plan"
 		payload["phase_plan_id"] = strings.TrimSpace(opState.PhasePlan.ID)
 		payload["phase_id"] = strings.TrimSpace(phase.ID)
-		r.recordExecutionEvent(key, core.ExecutionEventContinuationOffered, "continuation", "pending", payload, now)
 		r.recordContinuationBundleNarrowing(key, opState, []session.OperationPhase{phase}, state, "operation_phase_plan", now)
-		if err := r.sendMaterializedContinuationApprovalLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_phase_plan"); err != nil {
+		if err := r.sendAndRecordContinuationOfferLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_phase_plan", payload, now); err != nil {
 			return false, fmt.Errorf("send operation phase continuation approval: %w", err)
 		}
 		return true, nil
@@ -344,6 +411,18 @@ func (r *Runtime) materializePendingOperationProposalApprovalLocked(ctx context.
 	}
 	priorState = session.NormalizeContinuationState(priorState)
 	if priorExists && priorState.Status == session.ContinuationStatusPending && operationProposalMatchesContinuation(proposal, priorState) {
+		alreadyOffered, err := continuationApprovalAlreadyOffered(priorState, r.store, key)
+		if err != nil {
+			return false, fmt.Errorf("read delivered continuation offers: %w", err)
+		}
+		if alreadyOffered {
+			return true, nil
+		}
+		payload := continuationExecutionPayload(priorState)
+		payload["materialized_from"] = "operation_proposal_existing_continuation"
+		if err := r.sendAndRecordContinuationOfferLocked(ctx, key, msg, priorState, renderOperationProposalMaterializedPromptFallback(priorState), "operation_proposal_existing_continuation", payload, now); err != nil {
+			return false, fmt.Errorf("send existing operation proposal continuation approval: %w", err)
+		}
 		return true, nil
 	}
 
@@ -362,8 +441,7 @@ func (r *Runtime) materializePendingOperationProposalApprovalLocked(ctx context.
 	}
 	payload := continuationExecutionPayload(state)
 	payload["materialized_from"] = "operation_proposal"
-	r.recordExecutionEvent(key, core.ExecutionEventContinuationOffered, "continuation", "pending", payload, now)
-	if err := r.sendMaterializedContinuationApprovalLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_proposal"); err != nil {
+	if err := r.sendAndRecordContinuationOfferLocked(ctx, key, msg, state, renderOperationProposalMaterializedPromptFallback(state), "operation_proposal", payload, now); err != nil {
 		return false, fmt.Errorf("send operation proposal continuation approval: %w", err)
 	}
 	return true, nil

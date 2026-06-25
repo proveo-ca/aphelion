@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +19,7 @@ type missingContinuationLeaseRequirement struct {
 	Resource            string
 	GrantID             string
 	GrantTargetResource string
+	RequestInstanceID   string
 	Principal           string
 	LeaseClass          session.ContinuationLeaseClass
 	AllowedActions      []string
@@ -91,7 +91,19 @@ func (r *Registry) materializeMissingContinuationLeaseError(_ context.Context, k
 		return fmt.Errorf("%w; additionally failed to materialize lease request: incomplete lease requirement", err)
 	}
 	now := time.Now().UTC()
-	operationInput, opErr := missingContinuationLeaseOperationInputJSON(requirement)
+	subjectRef := missingContinuationLeaseSubjectRef(requirement)
+	if existing, ok, lookupErr := r.openMissingContinuationLeaseAction(key, subjectRef); lookupErr != nil {
+		return fmt.Errorf("%w; additionally failed to inspect existing lease request: %v", err, lookupErr)
+	} else if ok {
+		return safeToolFailureError{
+			class:       "authority_rejected",
+			summary:     fmt.Sprintf("tool execution failed: missing %s continuation lease; lease request already recorded", requirement.LeaseClass),
+			retryPolicy: "ask_for_grant",
+			cause:       fmt.Errorf("%w; existing next action %s", err, strings.TrimSpace(existing.RecordID)),
+		}
+	}
+	requirement.RequestInstanceID = missingContinuationLeaseRequestInstanceID(key, requirement, now)
+	operation, opErr := compileContinuationLeaseRecoveryHandoff(requirement)
 	if opErr != nil {
 		return fmt.Errorf("%w; additionally failed to materialize lease request: %v", err, opErr)
 	}
@@ -102,15 +114,15 @@ func (r *Registry) materializeMissingContinuationLeaseError(_ context.Context, k
 		Owner:              "tool",
 		State:              session.NextActionBlockedNeedsAuthority,
 		SubjectKind:        "continuation_lease_request",
-		SubjectRef:         missingContinuationLeaseSubjectRef(requirement),
+		SubjectRef:         subjectRef,
 		CausalRefs:         missingContinuationLeaseCausalRefs(requirement),
 		NextAction:         firstNonEmpty(requirement.NextAction, "approve a bounded continuation lease before retrying the blocked tool invocation"),
 		RequiredAuthority:  string(requirement.LeaseClass),
 		ResourceBlocker:    "missing_continuation_lease",
 		RetryPolicy:        "retry_after_lease",
-		OperationKind:      "continuation_lease_request",
-		OperationTool:      "request_approval",
-		OperationInputJSON: operationInput,
+		OperationKind:      operation.Kind,
+		OperationTool:      operation.Tool,
+		OperationInputJSON: operation.InputJSON,
 		OperatorProjection: requirement.OperatorProjection,
 		CreatedAt:          now,
 	})
@@ -123,6 +135,22 @@ func (r *Registry) materializeMissingContinuationLeaseError(_ context.Context, k
 		retryPolicy: "ask_for_grant",
 		cause:       err,
 	}
+}
+
+func (r *Registry) openMissingContinuationLeaseAction(key session.SessionKey, subjectRef string) (session.NextActionRecord, bool, error) {
+	if r == nil || r.store == nil {
+		return session.NextActionRecord{}, false, nil
+	}
+	open, err := r.store.OpenNextActionsBySession(key, 100)
+	if err != nil {
+		return session.NextActionRecord{}, false, err
+	}
+	for _, action := range open {
+		if action.SubjectKind == "continuation_lease_request" && strings.TrimSpace(action.SubjectRef) == strings.TrimSpace(subjectRef) {
+			return action, true, nil
+		}
+	}
+	return session.NextActionRecord{}, false, nil
 }
 
 func asMissingContinuationLeaseError(err error, target *missingContinuationLeaseError) bool {
@@ -147,6 +175,7 @@ func normalizeMissingContinuationLeaseRequirement(requirement missingContinuatio
 	requirement.Resource = strings.TrimSpace(requirement.Resource)
 	requirement.GrantID = strings.TrimSpace(requirement.GrantID)
 	requirement.GrantTargetResource = strings.TrimSpace(requirement.GrantTargetResource)
+	requirement.RequestInstanceID = strings.TrimSpace(requirement.RequestInstanceID)
 	requirement.Principal = strings.TrimSpace(requirement.Principal)
 	requirement.LeaseClass = session.NormalizeContinuationLeaseClass(requirement.LeaseClass)
 	requirement.Tool = strings.TrimSpace(requirement.Tool)
@@ -257,35 +286,26 @@ func missingContinuationLeaseNextActionRecordID(key session.SessionKey, requirem
 	seed := strings.Join([]string{
 		session.SessionIDForKey(key),
 		missingContinuationLeaseSubjectRef(requirement),
+		requirement.RequestInstanceID,
 		string(session.NextActionBlockedNeedsAuthority),
 	}, "\x00")
 	sum := sha256.Sum256([]byte(seed))
 	return "next_missing_lease_" + hex.EncodeToString(sum[:12])
 }
 
-func missingContinuationLeaseOperationInputJSON(requirement missingContinuationLeaseRequirement) (string, error) {
+func missingContinuationLeaseRequestInstanceID(key session.SessionKey, requirement missingContinuationLeaseRequirement, now time.Time) string {
 	requirement = normalizeMissingContinuationLeaseRequirement(requirement)
-	payload := map[string]any{
-		"action":                "request_continuation_lease",
-		"lease_class":           string(requirement.LeaseClass),
-		"principal":             requirement.Principal,
-		"allowed_actions":       requirement.AllowedActions,
-		"constraints":           requirement.Constraints,
-		"tool":                  requirement.Tool,
-		"tool_action":           requirement.ToolAction,
-		"grant_id":              requirement.GrantID,
-		"grant_target_resource": requirement.GrantTargetResource,
-		"retry_after_lease":     true,
+	if requirement.RequestInstanceID != "" {
+		return requirement.RequestInstanceID
 	}
-	if requirement.AgentID != "" {
-		payload["agent_id"] = requirement.AgentID
+	if now.IsZero() {
+		now = time.Now().UTC()
 	}
-	if requirement.Resource != "" {
-		payload["resource"] = requirement.Resource
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	return string(raw), nil
+	seed := strings.Join([]string{
+		session.SessionIDForKey(key),
+		missingContinuationLeaseSubjectRef(requirement),
+		now.UTC().Format(time.RFC3339Nano),
+	}, "\x00")
+	sum := sha256.Sum256([]byte(seed))
+	return "lease-request-instance-" + hex.EncodeToString(sum[:12])
 }
