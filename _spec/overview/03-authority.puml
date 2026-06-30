@@ -1,0 +1,34 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Overview · Authority & Governance\n//layer 03 — transport / Telegram surface omitted//
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+package "Authority & Governance" as AUTH {
+  component "**effectauth**\ncommand-effect authorization\nallow / deny membrane\n//approval narrows, never widens//" as EAUTH <<error>>
+  component "**principal**\nidentity & authorization model\nadmin / user · scope · session ownership" as PRIN <<app>>
+  component "**interpretation**\njudgment / use ledger service\n//says what happened, grants nothing//" as INTERP <<app>>
+  component "**decision**\ntyped operator-decision records" as DEC <<app>>
+}
+
+' --- neighbouring layers ---
+rectangle "Composition & Orchestration\n//-> 01-orchestration//" as ORCH <<app>>
+rectangle "Capabilities & I/O\n//-> 04-capabilities//" as CAP <<app>>
+database  "State & Continuity\n//-> 06-state//" as STATE <<db>>
+
+ORCH ARROW_OPTIONAL EAUTH : authorize effect
+CAP  ARROW_OPTIONAL EAUTH : gate capability
+ORCH ARROW_OPTIONAL PRIN  : resolve principal
+
+EAUTH  ARROW_OPTIONAL STATE : read leases / grants
+INTERP ARROW_OPTIONAL STATE : record judgments
+DEC    ARROW_OPTIONAL STATE : decision records
+
+note bottom of AUTH
+  Classification says **what** an effect is;
+  **effectauth** says whether this principal may
+  perform it **now**. Authority is granted by an
+  approved lease/grant — never by interpretation.
+end note
+
+@enduml

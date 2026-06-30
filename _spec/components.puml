@@ -1,0 +1,69 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Deployment & Component Interaction\n//Telegram transport surface omitted by scope//
+skinparam defaultFontSize 12
+skinparam componentStyle rectangle
+
+actor "Operator" as OP
+
+node "Operator Host — Linux" as HOST <<host>> {
+  component "**systemd --user**\naphelion.service supervisor" as SYSD <<host>>
+
+  node "aphelion — Parent Process" as PARENT <<app>> {
+    component "runtime shell\n+ turn / pipeline" as P_RT <<app>>
+    component "provider client\n(failover)" as P_PROV <<app>>
+    component "tool + sandbox" as P_TOOL <<app>>
+    component "durableagent\ncontrol plane (HTTP)" as P_CP <<app>>
+  }
+
+  database "SQLite ledger\nsessions · evidence · authority" as DB <<db>>
+  folder "~/.aphelion\nmemory archives (.toml)" as MEMDIR <<db>>
+
+  node "aphelion — Local Durable Child\n(forked runtime)" as LCHILD <<app>> {
+    component "child runtime" as LCRT <<app>>
+    database "child SQLite" as LCDB <<db>>
+  }
+}
+
+node "Remote Host — Linux (Tailnet)" as RHOST <<host>> {
+  component "aphelion — Remote Durable Child" as RCRT <<app>>
+  database "child SQLite" as RCDB <<db>>
+}
+
+cloud "Tailscale Tailnet" as TS <<cloud>>
+cloud "LLM Vendors\nAnthropic · OpenAI · OpenRouter · Gemini" as LLM <<cloud>>
+cloud "Ollama\nlocal / self-hosted LLM" as OLLAMA <<cloud>>
+cloud "ElevenLabs (TTS)" as EL <<cloud>>
+cloud "GitHub App" as GH <<cloud>>
+
+' --- operator & supervision ---
+OP   ARROW_MAIN     P_RT   : commands & approvals
+SYSD ARROW_OPTIONAL PARENT : supervises / restarts
+
+' --- parent local state ---
+P_RT ARROW_MAIN     DB     : persist (canonical ledger)
+P_RT ARROW_OPTIONAL MEMDIR : archive / recall
+
+' --- inference & integration egress ---
+P_PROV ARROW_CLOUD  LLM    : call model (failover)
+P_PROV ARROW_CLOUD  OLLAMA : local inference
+P_RT   ARROW_CLOUD  EL     : synthesize voice
+P_TOOL ARROW_CLOUD  GH     : mint token · git
+
+' --- local durable child (same host) ---
+P_CP   ARROW_QUEUE  LCRT   : policy & message relay\nreview artifacts (local)
+LCRT   ARROW_MAIN   LCDB   : persist
+LCRT   ARROW_CLOUD  LLM    : call model
+
+' --- remote durable child over tailnet ---
+RCRT ARROW_CLOUD TS    : signed control plane
+TS   ARROW_CLOUD P_CP  : enroll · poll policy / messages\nupload review artifacts
+RCRT ARROW_MAIN  RCDB  : persist (child ledger)
+RCRT ARROW_CLOUD LLM   : call model
+
+' --- IGNORE: layout hints (do not edit) ---
+HOST -[hidden]- RHOST
+LLM  -[hidden]- OLLAMA
+' --- END IGNORE ---
+
+@enduml

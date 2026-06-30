@@ -1,0 +1,36 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Overview · Layer Map\n//transport / Telegram surface omitted by scope//
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+actor "Operator" as OP
+
+rectangle "**Composition & Orchestration**\nmain · runtime · turn · pipeline\n//drives one turn; owns no stage detail//" as ORCH <<app>>
+rectangle "**Cognition & Inference**\nprompt · agent · face\ngovernorbackend · governorauth · provider" as COG <<app>>
+rectangle "**Authority & Governance**\neffectauth · principal\ninterpretation · decision" as AUTH <<error>>
+rectangle "**Capabilities & I/O**\ntool · sandbox · workspace\nmedia · voice · githubapp" as CAP <<app>>
+rectangle "**Durable Execution**\ndurableagent · tailnet" as DUR <<app>>
+database  "**State & Continuity**\nsession (SQLite ledger) · memory · core" as STATE <<db>>
+
+cloud "LLM Vendors\nAnthropic · OpenAI · OpenRouter · Gemini · Ollama" as LLM <<cloud>>
+
+OP   ARROW_MAIN     ORCH  : commands & approvals
+ORCH ARROW_MAIN     COG   : govern & render
+COG  ARROW_CLOUD    LLM   : call model (failover)
+ORCH ARROW_MAIN     STATE : persist before deliver
+ORCH ARROW_MAIN     CAP   : invoke tools
+ORCH ARROW_OPTIONAL AUTH  : authorize effect
+CAP  ARROW_OPTIONAL AUTH  : gate capability
+ORCH ARROW_OPTIONAL DUR   : manage children
+COG  ARROW_OPTIONAL STATE : recall (informs only)
+AUTH ARROW_OPTIONAL STATE : leases / grants / judgments
+DUR  ARROW_OPTIONAL STATE : durable child state
+
+note bottom of STATE
+  Each layer is detailed in its own file:
+  01-orchestration · 02-cognition · 03-authority
+  04-capabilities · 05-durable · 06-state
+end note
+
+@enduml

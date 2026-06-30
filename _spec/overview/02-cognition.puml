@@ -1,0 +1,35 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Overview · Cognition & Inference\n//layer 02 — transport / Telegram surface omitted//
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+package "Cognition & Inference" as COG {
+  component "**prompt**\nsystem-prompt composition\nby route / persona · runtime awareness" as PROMPT <<app>>
+  component "**agent**\nturn budget · token & iteration\naccounting · soft / hard limits" as AGENT <<app>>
+  component "**face**\npersona rendering\nvisible-reply composition" as FACE <<app>>
+  component "**provider**\nmulti-provider failover routing\nrequest / response normalization · streaming" as PROV <<app>>
+  component "**governorbackend**\nCodex / ChatGPT backend adapter\n//transport, not judgment//" as GBACK <<app>>
+  component "**governorauth**\ngovernor auth-material membrane\n//source discovery, not behavior//" as GAUTH <<app>>
+}
+
+' --- neighbouring layers ---
+rectangle "Composition & Orchestration\n//-> 01-orchestration//" as ORCH <<app>>
+database  "State & Continuity\n//-> 06-state//" as STATE <<db>>
+cloud "LLM Vendors\nAnthropic · OpenAI · OpenRouter\nGemini · Ollama" as LLM <<cloud>>
+
+' boundaries in
+ORCH ARROW_MAIN     PROV   : governor model calls
+ORCH ARROW_MAIN     FACE   : render visible reply
+ORCH ARROW_OPTIONAL PROMPT : compose prompt
+ORCH ARROW_OPTIONAL AGENT  : turn budget
+
+' intra-layer
+PROV  ARROW_OPTIONAL GBACK : codex route
+GBACK ARROW_OPTIONAL GAUTH : auth material
+
+' egress & recall
+PROV   ARROW_CLOUD    LLM   : call model (failover)
+PROMPT ARROW_OPTIONAL STATE : recall (informs only)
+
+@enduml

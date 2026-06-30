@@ -1,3 +1,5 @@
+// SPEC: _spec/overview/04-capabilities.puml
+
 //go:build linux
 
 package tool

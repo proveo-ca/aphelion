@@ -1,0 +1,33 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Overview · Capabilities & I/O\n//layer 04 — transport / Telegram surface omitted//
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+package "Capabilities & I/O" as CAP {
+  component "**tool**\nregistry · scoped exec / file / search / fetch\ncapability gates · authority access" as TOOL <<app>>
+  component "**tool/sandbox**\nisolated process execution\nno-network by default" as SBX <<error>>
+  component "**workspace**\nfile-I/O sandboxing & boundaries" as WS <<app>>
+  component "**media**\nprovider-neutral extraction\ntranscription · document text" as MEDIA <<app>>
+  component "**voice**\nvoice transcription / synthesis" as VOICE <<app>>
+  component "**githubapp**\nGitHub credential membrane\n//credential is not authority//" as GHA <<app>>
+}
+
+' --- neighbouring layers ---
+rectangle "Composition & Orchestration\n//-> 01-orchestration//" as ORCH <<app>>
+rectangle "Authority & Governance\n//-> 03-authority//" as AUTH <<error>>
+database  "State & Continuity\n//-> 06-state//" as STATE <<db>>
+cloud "GitHub App · ElevenLabs" as EXT <<cloud>>
+
+ORCH  ARROW_MAIN     TOOL  : invoke tools
+ORCH  ARROW_OPTIONAL VOICE : voice in / out
+TOOL  ARROW_OPTIONAL AUTH  : gate capability
+TOOL  ARROW_MAIN     SBX   : run isolated
+TOOL  ARROW_OPTIONAL WS    : workspace I/O
+TOOL  ARROW_OPTIONAL MEDIA : extract media
+TOOL  ARROW_OPTIONAL GHA   : git credential
+GHA   ARROW_CLOUD    EXT   : mint installation token
+VOICE ARROW_CLOUD    EXT   : synthesize speech
+TOOL  ARROW_OPTIONAL STATE : evidence objects
+
+@enduml

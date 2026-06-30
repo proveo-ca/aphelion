@@ -1,3 +1,5 @@
+// SPEC: _spec/overview/03-authority.puml
+
 //go:build linux
 
 package effectauth

@@ -1,0 +1,36 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Overview · Composition & Orchestration\n//layer 01 — transport / Telegram surface omitted//
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+actor "Operator" as OP
+
+package "Composition & Orchestration" as ORCH {
+  component "root **main**\ncompose & wire dependencies\nstart process · CLI / install / deploy" as MAIN <<app>>
+  component "**runtime**\nhouse shell · ingress / egress wiring\nprincipal · scope · session wiring\nlong-lived loops · assembly spines\n//does not own one-turn stage ordering//" as RT <<app>>
+  component "**turn**\none-turn state machine\npolicy-by-run-kind\nstage order · commit / deliver orchestration" as TURN <<app>>
+  component "**pipeline**\ngovernor <-> face conversational transforms\nfloor extraction · constitution validate / repair\nfallback serialization · render-decision helpers" as PIPE <<app>>
+}
+
+' --- neighbouring layers (detailed in their own files) ---
+rectangle "Cognition & Inference\n//-> 02-cognition//" as COG <<app>>
+rectangle "Authority & Governance\n//-> 03-authority//" as AUTH <<error>>
+rectangle "Capabilities & I/O\n//-> 04-capabilities//" as CAP <<app>>
+rectangle "Durable Execution\n//-> 05-durable//" as DUR <<app>>
+database  "State & Continuity\n//-> 06-state//" as STATE <<db>>
+
+' intra-layer spine
+OP   ARROW_MAIN     RT    : commands & approvals
+MAIN ARROW_MAIN     RT    : assemble & start
+RT   ARROW_MAIN     TURN  : drive one turn
+TURN ARROW_MAIN     PIPE  : govern & render
+
+' boundaries to other layers
+PIPE ARROW_MAIN     COG   : model calls / persona
+TURN ARROW_MAIN     STATE : persist before deliver
+TURN ARROW_OPTIONAL AUTH  : authorize effect
+TURN ARROW_OPTIONAL CAP   : invoke tools
+RT   ARROW_OPTIONAL DUR   : manage children
+
+@enduml

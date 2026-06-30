@@ -1,3 +1,5 @@
+// SPEC: _spec/overview/05-durable.puml, _spec/components.puml
+
 //go:build linux
 
 package durableagent

@@ -1,3 +1,5 @@
+// SPEC: _spec/overview/02-cognition.puml
+
 //go:build linux
 
 package provider

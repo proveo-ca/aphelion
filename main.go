@@ -1,3 +1,5 @@
+// SPEC: _spec/components.puml
+
 //go:build linux
 
 package main

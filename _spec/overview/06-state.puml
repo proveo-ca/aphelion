@@ -1,0 +1,32 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Overview · State & Continuity\n//layer 06 — transport / Telegram surface omitted//
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+package "State & Continuity" as STATE {
+  database "**session**\nSQLite ledger\ncanonical records + operational current-state\n(execution events · evidence · authority · messages)" as SESS <<db>>
+  database "**memory**\ngoverned continuity substrate\ncurated / semantic recall · perception budget\n//recall is not permission//" as MEM <<db>>
+  component "**core**\nshared domain types & contracts" as CORE <<app>>
+}
+
+' --- writers / readers (neighbouring layers) ---
+rectangle "Composition & Orchestration\n//-> 01-orchestration//" as ORCH <<app>>
+rectangle "Cognition & Inference\n//-> 02-cognition//" as COG <<app>>
+rectangle "Authority & Governance\n//-> 03-authority//" as AUTH <<error>>
+rectangle "Capabilities & I/O\n//-> 04-capabilities//" as CAP <<app>>
+rectangle "Durable Execution\n//-> 05-durable//" as DUR <<app>>
+
+ORCH ARROW_MAIN     SESS : persist before deliver
+COG  ARROW_OPTIONAL MEM  : recall (informs only)
+AUTH ARROW_OPTIONAL SESS : leases / grants / judgments
+CAP  ARROW_OPTIONAL SESS : evidence / artifacts
+DUR  ARROW_OPTIONAL SESS : durable child state
+
+note bottom of CORE
+  **core** types are imported by every layer
+  (edges omitted). **session** owns durable truth
+  and does not import orchestration packages.
+end note
+
+@enduml

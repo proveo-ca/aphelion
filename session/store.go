@@ -1,3 +1,5 @@
+// SPEC: _spec/overview/06-state.puml
+
 //go:build linux
 
 package session

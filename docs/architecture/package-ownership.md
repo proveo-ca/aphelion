@@ -1,3 +1,5 @@
+<!-- SPEC: _spec/overview/00-layer-map.puml -->
+
 # Package Ownership
 
 ![Package map](diagrams/01-package-map.svg)

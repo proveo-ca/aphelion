@@ -1,0 +1,30 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Aphelion — Overview · Durable Execution\n//layer 05 — transport / Telegram surface omitted//
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+package "Durable Execution" as DUR {
+  component "**durableagent**\nchild substrate · enrollment · signatures\nsnapshots · profiles · provisioning\npolicy / conversation relay\nreview-artifact movement · forensics\ncontrol-plane HTTP · remote loop\n//continuation is not permission//" as DA <<app>>
+  component "**tailnet**\noptional Tailscale substrate\nfor remote-host children" as TN <<app>>
+}
+
+' --- neighbouring layers / context ---
+rectangle "Composition & Orchestration\n//-> 01-orchestration//" as ORCH <<app>>
+database  "State & Continuity\n//-> 06-state//" as STATE <<db>>
+cloud "Remote durable children\n(separate Linux hosts)" as REMOTE <<cloud>>
+
+ORCH ARROW_OPTIONAL DA     : manage children
+DA   ARROW_OPTIONAL TN     : remote transport
+DA   ARROW_OPTIONAL STATE  : durable child state / review artifacts
+TN   ARROW_CLOUD    REMOTE : signed control plane (HTTP)
+
+note bottom of DUR
+  Child reports, enrollment, wakeups, and durable
+  state are **evidence** until higher governance
+  grants authority. Runtime topology (parent /
+  local child / remote host) is in
+  ""_spec/components.puml"".
+end note
+
+@enduml
